@@ -1,0 +1,16 @@
+[package]
+name = "saber"
+version = "0.1.0"
+authors = ["Daan Sprenkels <hello@dsprenkels.com>"]
+edition = "2018"
+publish = false
+
+[dependencies]
+rand = "0.6"
+
+[dependencies.sha3]
+version = "0.8"
+default-features = false
+
+[build-dependencies]
+cc = "1.0"
