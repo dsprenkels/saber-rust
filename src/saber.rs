@@ -2,6 +2,8 @@
 
 use core::ops::{Add, Mul, Shr, Sub};
 
+use sha3::digest::{ExtendableOutput, Input, XofReader};
+
 use crate::params::*;
 use crate::poly::Poly;
 use crate::SaberImplementation;
@@ -72,23 +74,28 @@ mod ffi {
 
         // void Recon(uint16_t *recon_data,unsigned char *recon_ar,uint16_t *message_dec_unpacked);
         pub fn Recon(recon_data: *mut Poly, recon_ar: *mut u8, message_dec_unpacked: *mut Poly);
+
+        // void BS2POLq(const unsigned char *bytes, uint16_t data[SABER_N]);
+        pub fn BS2POLq(bytes: *const u8, data: *mut Poly);
     }
 }
 
 /// Vector is equivalent to the reference implementation's `polyvec` type.
 #[repr(C)]
-#[derive(Clone, Copy)]
-pub struct Vector([Poly; K]);
+#[derive(Clone, Copy, Debug)]
+pub struct Vector {
+    polys: [Poly; K],
+}
 
 impl Add<Vector> for Vector {
     type Output = Vector;
 
     fn add(self, rhs: Self) -> Vector {
-        let Vector(mut vec) = self;
+        let Vector { mut polys } = self;
         for i in 0..K {
-            vec[i] = vec[i] + rhs.0[i];
+            polys[i] = polys[i] + rhs.polys[i];
         }
-        Vector(vec)
+        Vector { polys }
     }
 }
 
@@ -97,11 +104,11 @@ impl Add<u16> for Vector {
 
     #[inline]
     fn add(self, rhs: u16) -> Vector {
-        let Vector(mut vec) = self;
+        let Vector { mut polys } = self;
         for i in 0..K {
-            vec[i] = vec[i] + rhs;
+            polys[i] = polys[i] + rhs;
         }
-        Vector(vec)
+        Vector { polys }
     }
 }
 
@@ -110,9 +117,9 @@ impl Mul<Vector> for Vector {
 
     /// As implemented by Algorithm 17
     fn mul(self, rhs: Self) -> Poly {
-        let mut acc = Poly::new();
+        let mut acc = Poly::default();
         for i in 0..K {
-            acc = acc + (self.0[i] * rhs.0[i]);
+            acc = acc + (self.polys[i] * rhs.polys[i]);
         }
         acc
     }
@@ -123,49 +130,57 @@ impl Shr<u8> for Vector {
 
     #[inline]
     fn shr(self, rhs: u8) -> Self {
-        let Vector(mut vec) = self;
+        let Vector { mut polys } = self;
         for i in 0..K {
-            vec[i] = vec[i] >> rhs;
+            polys[i] = polys[i] >> rhs;
         }
-        Vector(vec)
+        Vector { polys }
     }
 }
 
-impl Vector {
-    fn new() -> Self {
-        Vector([Poly::new(); K])
+impl Default for Vector {
+    fn default() -> Self {
+        Vector {
+            polys: [Poly::default(); K],
+        }
     }
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
-pub struct Matrix([Vector; K]);
+#[derive(Clone, Copy, Debug)]
+pub struct Matrix {
+    vecs: [Vector; K],
+}
 
 impl Add<u16> for Matrix {
     type Output = Self;
 
     #[inline]
     fn add(self, rhs: u16) -> Matrix {
-        let Matrix(mut mat) = self;
+        let Matrix { mut vecs } = self;
         for i in 0..K {
-            mat[i] = mat[i] + rhs;
+            vecs[i] = vecs[i] + rhs;
         }
-        Matrix(mat)
+        Matrix { vecs }
+    }
+}
+
+impl Default for Matrix {
+    #[inline]
+    fn default() -> Self {
+        Matrix {
+            vecs: [Vector::default(); K],
+        }
     }
 }
 
 impl Matrix {
-    #[inline]
-    fn new() -> Self {
-        Matrix([Vector::new(); K])
-    }
-
     /// As implemented by Algorithm 16
     #[inline]
     fn mul(self, rhs: Vector) -> Vector {
-        let mut result = Vector::new();
+        let mut result = Vector::default();
         for i in 0..K {
-            result.0[i] = self.0[i] * rhs;
+            result.polys[i] = self.vecs[i] * rhs;
         }
         result
     }
@@ -173,10 +188,10 @@ impl Matrix {
     /// As implemented by Algorithm 16
     #[inline]
     fn mul_transpose(self, rhs: Vector) -> Vector {
-        let mut result = Vector::new();
+        let mut result = Vector::default();
         for i in 0..K {
             for j in 0..K {
-                result.0[i] = result.0[i] + self.0[j].0[i] * rhs.0[j];
+                result.polys[i] = result.polys[i] + self.vecs[j].polys[i] * rhs.polys[j];
             }
         }
         result
@@ -188,11 +203,11 @@ impl Shr<u8> for Matrix {
 
     #[inline]
     fn shr(self, rhs: u8) -> Self {
-        let Matrix(mut mat) = self;
+        let Matrix { mut vecs } = self;
         for i in 0..N {
-            mat[i] = mat[i] >> rhs;
+            vecs[i] = vecs[i] >> rhs;
         }
-        Matrix(mat)
+        Matrix { vecs }
     }
 }
 
@@ -202,26 +217,41 @@ pub struct PublicKey([u8; PUBLICKEYBYTES]);
 #[repr(C)]
 pub struct SecretKey([u8; SECRETKEYBYTES]);
 
+fn gen_matrix(seed: &[u8]) -> Matrix {
+    debug_assert_eq!(seed.len(), SEEDBYTES);
+
+    let mut hasher = sha3::Shake128::default();
+    hasher.input(seed);
+    let mut xof = hasher.xof_result();
+
+    let mut matrix = Matrix::default();
+    let mut buf = [0; 13 * N / 8];
+    for idx in 0..K {
+        for idx2 in 0..K {
+            xof.read(&mut buf);
+
+            let ref mut poly = matrix.vecs[idx].polys[idx2];
+            unsafe {
+                // TODO(dsprenkels) LEFT HERE > implement BS2POLq
+                ffi::BS2POLq(buf.as_ptr(), poly as *mut Poly);
+            }
+        }
+    }
+    matrix
+}
+
 /// Returns a tuple (public_key, secret_key), of PublicKey, SecretKey objects
 // C type in reference: void indcpa_kem_keypair(unsigned char *pk, unsigned char *sk);
 fn indcpa_kem_keypair() -> (PublicKey, SecretKey) {
-    let mut a = Matrix::new();
-    let mut sk_vec = Vector::new();
+    let mut a = Matrix::default();
+    let mut sk_vec = Vector::default();
     let mut pk_vec;
     let mut sk = SecretKey([0; SECRETKEYBYTES]);
     let mut pk = PublicKey([0; PUBLICKEYBYTES]);
-    let mut seed = [0u8; SEEDBYTES];
-    let mut noiseseed = [0u8; COINBYTES];
+    let mut seed: [u8; SEEDBYTES] = rand::random();
+    let mut noiseseed: [u8; COINBYTES] = rand::random();
 
     unsafe {
-        ffi::randombytes(seed.as_mut_ptr(), seed.len() as u64);
-        ffi::shake128(
-            seed.as_mut_ptr(),
-            seed.len() as u64,
-            seed.as_ptr(),
-            seed.len() as u64,
-        );
-        ffi::randombytes(seed.as_mut_ptr(), seed.len() as u64);
         ffi::GenMatrix(&mut a as *mut Matrix, seed.as_ptr());
         ffi::GenSecret(&mut sk_vec as *mut Vector, noiseseed.as_ptr());
 
@@ -245,20 +275,22 @@ fn indcpa_kem_enc(
     noiseseed: &[u8; NOISE_SEEDBYTES],
     pk: &PublicKey,
 ) -> [u8; BYTES_CCA_DEC] {
-    let mut a = Matrix::new();
-    let mut seed = [0; SEEDBYTES];
-    let mut sk_vec1 = Vector::new();
+    let mut a = Matrix::default();
+    let mut sk_vec1 = Vector::default();
     let mut pk_vec1: Vector;
     let mut ciphertext = [0; BYTES_CCA_DEC];
     let mut public_key = PublicKey([0; PUBLICKEYBYTES]);
-    let mut v1_vec: Vector = Vector::new();
+    let mut v1_vec: Vector = Vector::default();
     let pol_p: Poly;
-    let mut m_p = Poly::new();
+    let mut m_p = Poly::default();
     let mut rec = [0; RECONBYTES_KEM];
 
     let (pk_vec, seed) = pk.0.split_at(POLYVECCOMPRESSEDBYTES);
     unsafe {
         ffi::GenMatrix(&mut a as *mut Matrix, seed.as_ptr());
+        println!("{:?}", a);
+        a = gen_matrix(seed);
+        println!("{:?}", a);
         ffi::GenSecret(&mut sk_vec1 as *mut Vector, noiseseed.as_ptr());
 
         // Compute b' (called `res` in reference implementation)
@@ -279,7 +311,7 @@ fn indcpa_kem_enc(
         // m_p = MSG2POL(m)
         for idx in 0..KEYBYTES {
             for idx2 in 0..8 {
-                m_p.0[8 * idx + idx2] = u16::from((message_received[idx] >> idx2) & 0x01);
+                m_p.coeffs[8 * idx + idx2] = u16::from((message_received[idx] >> idx2) & 0x01);
             }
         }
         m_p = m_p << MSG2POL_CONST;
@@ -299,9 +331,9 @@ fn indcpa_kem_enc(
 
 // C type in reference: void indcpa_kem_dec(const unsigned char *sk, const unsigned char *ciphertext, unsigned char message_dec[])
 fn indcpa_kem_dec(sk: &SecretKey, ciphertext: &[u8; BYTES_CCA_DEC]) -> [u8; MESSAGEBYTES] {
-    let mut sk_vec = Vector::new();
-    let mut b_vec = Vector::new();
-    let mut message_dec_unpacked = Poly::new();
+    let mut sk_vec = Vector::default();
+    let mut b_vec = Vector::default();
+    let mut message_dec_unpacked = Poly::default();
     let mut message_dec = [0; MESSAGEBYTES];
 
     // Extract (rec || ct) = CipherText
