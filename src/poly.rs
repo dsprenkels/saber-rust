@@ -1,11 +1,13 @@
 use crate::params::*;
-use core::ops::{Add, Mul, Sub};
+use core::ops::{Add, Mul, Shl, Shr};
 
+/// Poly is equivalent to the reference implementation's `poly` type
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Poly(pub [u16; N]);
 
-impl Add for &Poly {
-    type Output = Poly;
+impl Add for Poly {
+    type Output = Self;
 
     #[inline]
     fn add(self, rhs: Self) -> Poly {
@@ -20,24 +22,21 @@ impl Add for &Poly {
     }
 }
 
-impl Sub for &Poly {
-    type Output = Poly;
+impl Add<u16> for Poly {
+    type Output = Self;
 
     #[inline]
-    fn sub(self, rhs: Self) -> Poly {
-        let Poly(a) = self;
-        let Poly(b) = rhs;
-        let mut c = [0_u16; N];
-
+    fn add(self, rhs: u16) -> Poly {
+        let Poly(mut poly) = self;
         for i in 0..N {
-            c[i] = a[i].wrapping_sub(b[i]);
+            poly[i] += rhs;
         }
-        Poly(c)
+        Poly(poly)
     }
 }
 
-impl Mul for &Poly {
-    type Output = Poly;
+impl Mul for Poly {
+    type Output = Self;
 
     #[inline]
     fn mul(self, rhs: Self) -> Poly {
@@ -56,6 +55,32 @@ impl Mul for &Poly {
             }
         }
         Poly(c)
+    }
+}
+
+impl Shl<u8> for Poly {
+    type Output = Self;
+
+    #[inline]
+    fn shl(self, rhs: u8) -> Self {
+        let Poly(mut poly) = self;
+        for i in 0..N {
+            poly[i] = poly[i] << rhs;
+        }
+        Poly(poly)
+    }
+}
+
+impl Shr<u8> for Poly {
+    type Output = Self;
+
+    #[inline]
+    fn shr(self, rhs: u8) -> Self {
+        let Poly(mut poly) = self;
+        for i in 0..N {
+            poly[i] = poly[i] >> rhs;
+        }
+        Poly(poly)
     }
 }
 
@@ -140,7 +165,7 @@ mod tests {
     fn poly_mul_random() {
         for (i, test) in POLY_MUL_RANDOM_TESTS.iter().enumerate() {
             let (a, b, expected) = test;
-            let c = (a * b).reduce(Q);
+            let c = (*a * *b).reduce(Q);
 
             // We need this loop if we don't want to impl Debug on [u16; 256] ourselves
             for j in 0..N {

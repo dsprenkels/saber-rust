@@ -11,6 +11,7 @@ pub const N: usize = 256;
 pub const Q: u16 = 8192;
 pub const P: u16 = 1024;
 pub const SEEDBYTES: usize = 32;
+pub const COINBYTES: usize = 32;
 pub const KEYBYTES: usize = 32;
 pub const HASHBYTES: usize = 32;
 pub const NOISE_SEEDBYTES: usize = 32;

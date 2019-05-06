@@ -1,7 +1,5 @@
-// #![no_std]
-
-extern crate sha3;
 extern crate rand;
+extern crate sha3;
 
 mod params;
 mod poly;

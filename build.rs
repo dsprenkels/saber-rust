@@ -14,7 +14,7 @@ const SABER_SRCS: [&str; 9] = [
 
 fn main() {
     // if std::env::var("DEBUG").map(|s| s.to_lowercase()) == Ok("true".into()) {
-        // Build saber reference implementation only when testing
+    // Build saber reference implementation only when testing
     // }
     cc::Build::new().files(&SABER_SRCS).compile("saber");
     println!("# The native saber sources need libcrypto");
