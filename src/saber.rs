@@ -14,6 +14,7 @@ pub const MU: usize = 8;
 pub const DELTA: usize = 3;
 pub const POLYVECCOMPRESSEDBYTES: usize = K * (N * 10) / 8;
 pub const CIPHERTEXTBYTES: usize = POLYVECCOMPRESSEDBYTES;
+pub const MESSAGEBYTES: usize = 32;
 pub const RECONBYTES: usize = DELTA * N / 8;
 pub const RECONBYTES_KEM: usize = (DELTA + 1) * N / 8;
 pub const INDCPA_PUBKEYBYTES: usize = 992;
@@ -62,8 +63,17 @@ mod ffi {
         // void BS2POLVECp(const unsigned char *pk, uint16_t data[SABER_K][SABER_N]);
         pub fn BS2POLVECp(pk: *const u8, data: *mut Vector);
 
+        // void BS2POLVECq(const unsigned char *sk,  uint16_t skpv[SABER_K][SABER_N]);
+        pub fn BS2POLVECq(sk: *const u8, skpv: *mut Vector);
+
+        // void POL2MSG(uint16_t *message_dec_unpacked, unsigned char *message_dec);
+        pub fn POL2MSG(message_dec_unpacked: *mut Poly, message_dec: *mut u8);
+
         // void ReconDataGen(uint16_t *vprime, unsigned char *rec_c);
         pub fn ReconDataGen(vprime: *mut Poly, rec_c: *mut u8);
+
+        // void Recon(uint16_t *recon_data,unsigned char *recon_ar,uint16_t *message_dec_unpacked);
+        pub fn Recon(recon_data: *mut Poly, recon_ar: *mut u8, message_dec_unpacked: *mut Poly);
     }
 }
 
@@ -231,17 +241,16 @@ fn indcpa_kem_keypair() -> (PublicKey, SecretKey) {
 }
 
 // void indcpa_kem_enc(unsigned char *message_received, unsigned char *noiseseed, const unsigned char *pk, unsigned char *ciphertext)
-
 fn indcpa_kem_enc(
     message_received: &[u8; KEYBYTES],
     noiseseed: &[u8; NOISE_SEEDBYTES],
     pk: &PublicKey,
-) -> [u8; SECRETKEYBYTES] {
+) -> [u8; BYTES_CCA_DEC] {
     let mut a = Matrix::new();
     let mut seed = [0; SEEDBYTES];
     let mut sk_vec1 = Vector::new();
     let mut pk_vec1: Vector;
-    let mut ciphertext = [0; SECRETKEYBYTES];
+    let mut ciphertext = [0; BYTES_CCA_DEC];
     let mut public_key = PublicKey([0; PUBLICKEYBYTES]);
     let mut v1_vec: Vector = Vector::new();
     let pol_p: Poly;
@@ -271,7 +280,7 @@ fn indcpa_kem_enc(
         // m_p = MSG2POL(m)
         for idx in 0..KEYBYTES {
             for idx2 in 0..8 {
-                m_p.0[8 * idx + idx2] = ((message_received[idx] >> idx2) & 0x01) as u16;
+                m_p.0[8 * idx + idx2] = u16::from((message_received[idx] >> idx2) & 0x01);
             }
         }
         m_p = m_p << MSG2POL_CONST;
@@ -284,9 +293,47 @@ fn indcpa_kem_enc(
 
         // CipherText_cpa = (rec || ct)
         ciphertext[POLYVECCOMPRESSEDBYTES..POLYVECCOMPRESSEDBYTES + RECONBYTES_KEM]
-            .clone_from_slice(&rec);
+            .copy_from_slice(&rec);
     }
     ciphertext
+}
+
+// void indcpa_kem_dec(const unsigned char *sk, const unsigned char *ciphertext, unsigned char message_dec[])
+fn indcpa_kem_dec(sk: SecretKey, ciphertext: [u8; BYTES_CCA_DEC]) -> [u8; MESSAGEBYTES] {
+    let mut sk_vec = Vector::new();
+    let mut b_vec = Vector::new();
+    let mut message_dec_unpacked = Poly::new();
+    let mut message_dec = [0; MESSAGEBYTES];
+
+    // Extract (rec || ct) = CipherText
+    let (ct, _) = ciphertext.split_at(POLYVECCOMPRESSEDBYTES);
+    let mut rec = [0; RECONBYTES_KEM];
+    rec.copy_from_slice(&ciphertext[POLYVECCOMPRESSEDBYTES..]);
+
+    unsafe {
+        // s = BS2POLVECq(SecretKey_cpa)
+        ffi::BS2POLVECq(sk.0.as_ptr(), &mut sk_vec as *mut Vector);
+
+        // b = BS2BOLVECp(ct)
+        ffi::BS2POLVECp(ct.as_ptr(), &mut b_vec as *mut Vector);
+
+        // v' = VectorMul(b, s, p)
+        let mut v1 = b_vec * sk_vec;
+
+        // m' = Recon(rec, v')
+        ffi::Recon(
+            &mut v1 as *mut Poly,
+            rec.as_mut_ptr(),
+            &mut message_dec_unpacked as *mut Poly,
+        );
+
+        // m = POL2MSG(m')
+        ffi::POL2MSG(
+            &mut message_dec_unpacked as *mut Poly,
+            message_dec.as_mut_ptr(),
+        );
+    }
+    message_dec
 }
 
 pub struct Saber;
@@ -308,17 +355,39 @@ mod tests {
     }
 
     #[test]
-    fn indcpa_reference() {
+    fn indcpa_impl() {
         let mut pk = PublicKey([0; PUBLICKEYBYTES]);
         let mut sk = SecretKey([0; SECRETKEYBYTES]);
         let mut noiseseed = rand::random::<[u8; NOISE_SEEDBYTES]>();
         let mut message_received = [b'A'; 32];
-        let mut ciphertext = [b'B'; SECRETKEYBYTES];
+        let mut ciphertext = [b'B'; BYTES_CCA_DEC];
         let mut message_dec = [b'C'; 32];
 
         unsafe {
             ffi::indcpa_kem_keypair(&mut pk as *mut PublicKey, &mut sk as *mut SecretKey);
             ciphertext = indcpa_kem_enc(&message_received, &noiseseed, &pk);
+            message_dec = indcpa_kem_dec(sk, ciphertext);
+        }
+        assert_eq!(&message_dec[..], &message_received[..]);
+    }
+
+    #[test]
+    fn indcpa_reference() {
+        let mut pk = PublicKey([0; PUBLICKEYBYTES]);
+        let mut sk = SecretKey([0; SECRETKEYBYTES]);
+        let mut noiseseed = rand::random::<[u8; NOISE_SEEDBYTES]>();
+        let mut message_received = [b'A'; 32];
+        let mut ciphertext = [b'B'; BYTES_CCA_DEC];
+        let mut message_dec = [b'C'; 32];
+
+        unsafe {
+            ffi::indcpa_kem_keypair(&mut pk as *mut PublicKey, &mut sk as *mut SecretKey);
+            ffi::indcpa_kem_enc(
+                message_received.as_mut_ptr(),
+                noiseseed.as_mut_ptr(),
+                &pk as *const PublicKey,
+                ciphertext.as_mut_ptr(),
+            );
             ffi::indcpa_kem_dec(
                 &mut sk as *mut SecretKey,
                 ciphertext.as_ptr(),
@@ -332,7 +401,7 @@ mod tests {
     fn indcpa_keypair() {
         let mut noiseseed = rand::random::<[u8; NOISE_SEEDBYTES]>();
         let mut message_received = [b'A'; 32];
-        let mut ciphertext = [b'B'; SECRETKEYBYTES];
+        let mut ciphertext = [b'B'; BYTES_CCA_DEC];
         let mut message_dec = [b'C'; 32];
 
         let (mut pk, mut sk) = indcpa_kem_keypair();
@@ -355,5 +424,10 @@ mod tests {
     #[test]
     fn polyveccompressedbytes_value() {
         assert_eq!(POLYVECCOMPRESSEDBYTES + SEEDBYTES, PUBLICKEYBYTES);
+    }
+
+    #[test]
+    fn bytes_cca_dec_value() {
+        assert_eq!(CIPHERTEXTBYTES + RECONBYTES_KEM, BYTES_CCA_DEC);
     }
 }

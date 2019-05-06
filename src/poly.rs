@@ -28,8 +28,8 @@ impl Add<u16> for Poly {
     #[inline]
     fn add(self, rhs: u16) -> Poly {
         let Poly(mut poly) = self;
-        for i in 0..N {
-            poly[i] += rhs;
+        for idx in 0..N {
+            poly[idx] = poly[idx].wrapping_add(rhs);
         }
         Poly(poly)
     }
@@ -139,8 +139,9 @@ impl Poly {
         Poly([0; N])
     }
 
+    #[inline]
     pub fn reduce(self, m: u16) -> Self {
-        assert!(
+        debug_assert!(
             m.is_power_of_two(),
             "m must be a power of two, not 0x{:02x}",
             m
@@ -158,7 +159,7 @@ mod tests {
     use super::*;
 
     // This file defines random tests in `POLY_MUL_RANDOM_TESTS`
-    const POLY_MUL_RANDOM_TESTS: [(Poly, Poly, Poly); 1000] =
+    const POLY_MUL_RANDOM_TESTS: [(Poly, Poly, Poly); 100] =
         include!("testdata/poly_mul_random_tests.in");
 
     #[test]
