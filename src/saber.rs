@@ -1,5 +1,3 @@
-// TODO(dsprenkels) Currently implementing indcpa_kem_keypair
-
 #![allow(unused)]
 
 use core::ops::{Add, Mul, Shr, Sub};
@@ -205,6 +203,7 @@ pub struct PublicKey([u8; PUBLICKEYBYTES]);
 pub struct SecretKey([u8; SECRETKEYBYTES]);
 
 /// Returns a tuple (public_key, secret_key), of PublicKey, SecretKey objects
+// C type in reference: void indcpa_kem_keypair(unsigned char *pk, unsigned char *sk);
 fn indcpa_kem_keypair() -> (PublicKey, SecretKey) {
     let mut a = Matrix::new();
     let mut sk_vec = Vector::new();
@@ -240,7 +239,7 @@ fn indcpa_kem_keypair() -> (PublicKey, SecretKey) {
     (pk, sk)
 }
 
-// void indcpa_kem_enc(unsigned char *message_received, unsigned char *noiseseed, const unsigned char *pk, unsigned char *ciphertext)
+// C type in reference: void indcpa_kem_enc(unsigned char *message_received, unsigned char *noiseseed, const unsigned char *pk, unsigned char *ciphertext)
 fn indcpa_kem_enc(
     message_received: &[u8; KEYBYTES],
     noiseseed: &[u8; NOISE_SEEDBYTES],
@@ -298,8 +297,8 @@ fn indcpa_kem_enc(
     ciphertext
 }
 
-// void indcpa_kem_dec(const unsigned char *sk, const unsigned char *ciphertext, unsigned char message_dec[])
-fn indcpa_kem_dec(sk: SecretKey, ciphertext: [u8; BYTES_CCA_DEC]) -> [u8; MESSAGEBYTES] {
+// C type in reference: void indcpa_kem_dec(const unsigned char *sk, const unsigned char *ciphertext, unsigned char message_dec[])
+fn indcpa_kem_dec(sk: &SecretKey, ciphertext: &[u8; BYTES_CCA_DEC]) -> [u8; MESSAGEBYTES] {
     let mut sk_vec = Vector::new();
     let mut b_vec = Vector::new();
     let mut message_dec_unpacked = Poly::new();
@@ -356,45 +355,42 @@ mod tests {
 
     #[test]
     fn indcpa_impl() {
-        let mut pk = PublicKey([0; PUBLICKEYBYTES]);
-        let mut sk = SecretKey([0; SECRETKEYBYTES]);
-        let mut noiseseed = rand::random::<[u8; NOISE_SEEDBYTES]>();
-        let mut message_received = [b'A'; 32];
-        let mut ciphertext = [b'B'; BYTES_CCA_DEC];
-        let mut message_dec = [b'C'; 32];
-
-        unsafe {
-            ffi::indcpa_kem_keypair(&mut pk as *mut PublicKey, &mut sk as *mut SecretKey);
-            ciphertext = indcpa_kem_enc(&message_received, &noiseseed, &pk);
-            message_dec = indcpa_kem_dec(sk, ciphertext);
+        let (pk, sk) = indcpa_kem_keypair();
+        for _ in 0..100 {
+            let mut noiseseed = rand::random::<[u8; NOISE_SEEDBYTES]>();
+            let mut message_received = rand::random::<[u8; 32]>();
+            let ciphertext = indcpa_kem_enc(&message_received, &noiseseed, &pk);
+            let message_dec = indcpa_kem_dec(&sk, &ciphertext);
+            assert_eq!(&message_dec[..], &message_received[..]);
         }
-        assert_eq!(&message_dec[..], &message_received[..]);
     }
 
     #[test]
     fn indcpa_reference() {
         let mut pk = PublicKey([0; PUBLICKEYBYTES]);
         let mut sk = SecretKey([0; SECRETKEYBYTES]);
-        let mut noiseseed = rand::random::<[u8; NOISE_SEEDBYTES]>();
-        let mut message_received = [b'A'; 32];
-        let mut ciphertext = [b'B'; BYTES_CCA_DEC];
-        let mut message_dec = [b'C'; 32];
 
-        unsafe {
-            ffi::indcpa_kem_keypair(&mut pk as *mut PublicKey, &mut sk as *mut SecretKey);
-            ffi::indcpa_kem_enc(
-                message_received.as_mut_ptr(),
-                noiseseed.as_mut_ptr(),
-                &pk as *const PublicKey,
-                ciphertext.as_mut_ptr(),
-            );
-            ffi::indcpa_kem_dec(
-                &mut sk as *mut SecretKey,
-                ciphertext.as_ptr(),
-                message_dec.as_mut_ptr(),
-            );
+        for _ in 0..100 {
+            let mut noiseseed = rand::random::<[u8; NOISE_SEEDBYTES]>();
+            let mut message_received = rand::random::<[u8; MESSAGEBYTES]>();
+            let mut ciphertext = [0; BYTES_CCA_DEC];
+            let mut message_dec = [0; MESSAGEBYTES];
+            unsafe {
+                ffi::indcpa_kem_keypair(&mut pk as *mut PublicKey, &mut sk as *mut SecretKey);
+                ffi::indcpa_kem_enc(
+                    message_received.as_mut_ptr(),
+                    noiseseed.as_mut_ptr(),
+                    &pk as *const PublicKey,
+                    ciphertext.as_mut_ptr(),
+                );
+                ffi::indcpa_kem_dec(
+                    &mut sk as *mut SecretKey,
+                    ciphertext.as_ptr(),
+                    message_dec.as_mut_ptr(),
+                );
+            }
+            assert_eq!(&message_dec[..], &message_received[..]);
         }
-        assert_eq!(&message_dec[..], &message_received[..]);
     }
 
     #[test]
