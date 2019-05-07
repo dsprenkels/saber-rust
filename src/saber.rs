@@ -343,23 +343,22 @@ pub fn indcpa_kem_enc(
     noiseseed: &[u8; NOISE_SEEDBYTES],
     pk: &PublicKey,
 ) -> [u8; BYTES_CCA_DEC] {
-    let mut a = Matrix::default();
-    let mut sk_vec = Vector::default();
-    let mut pk_vec: Vector;
     let mut ciphertext = [0; BYTES_CCA_DEC];
-    let mut public_key = PublicKey([0; PUBLICKEYBYTES]);
-    let mut v1_vec: Vector = Vector::default();
-    let pol_p: Poly;
-    let mut m_p = Poly::default();
 
+    // CipherText_cpa = (rec || ct)
     let (ct, rec) = ciphertext.split_at_mut(POLYVECCOMPRESSEDBYTES);
+
+    // Extract pk and seed_A from PublicKey_cpa = (pk || seed_A)
     let (pk, seed) = pk.0.split_at(POLYVECCOMPRESSEDBYTES);
 
-    a = gen_matrix(seed);
-    sk_vec = gen_secret(&noiseseed);
+    // A = GenMatrix(seed_A)
+    let a = gen_matrix(seed);
+
+    // s' = GenSecret(seed_s')
+    let sk_vec = gen_secret(&noiseseed);
 
     // Compute b' (called `res` in reference implementation)
-    pk_vec = a.mul_transpose(sk_vec);
+    let mut pk_vec = a.mul_transpose(sk_vec);
 
     // Rounding of b' into v_p
     pk_vec = (pk_vec + 4) >> 3;
@@ -368,14 +367,16 @@ pub fn indcpa_kem_enc(
     pk_vec.read_mod_p(ct);
 
     // v' = BS2POLVECp(pk)
-    v1_vec = Vector::from_bytes_mod_p(pk);
+    let v1_vec = Vector::from_bytes_mod_p(pk);
 
     // pol_p = VectorMul(v', s', p)
-    pol_p = v1_vec * sk_vec;
+    let pol_p = v1_vec * sk_vec;
 
     // m_p = MSG2POL(m)
-    let m_p_chunks_exact = m_p.coeffs.chunks_exact_mut(8);
-    for (idx, (b, coeffs_chunk)) in message_received.iter().zip(m_p_chunks_exact).enumerate() {
+    // TODO(dsprenkels) Implement this routine as a function on `Poly`
+    let mut m_p = Poly::default();
+    let m_p_chunks_iter = m_p.coeffs.chunks_exact_mut(8);
+    for (idx, (b, coeffs_chunk)) in message_received.iter().zip(m_p_chunks_iter).enumerate() {
         for (idx2, coeff) in coeffs_chunk.iter_mut().enumerate() {
             *coeff = u16::from((b >> idx2) & 0x01);
         }
@@ -388,7 +389,6 @@ pub fn indcpa_kem_enc(
     // rec = ReconDataGen(m_p)
     recon_data_gen(rec, &m_p);
 
-    // CipherText_cpa = (rec || ct)
     ciphertext
 }
 
