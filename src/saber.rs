@@ -6,10 +6,10 @@ use sha3::digest::{ExtendableOutput, Input, XofReader};
 
 use crate::params::*;
 use crate::poly::Poly;
-use crate::SaberImplementation;
 
 /// Also known as `l`
 pub const K: usize = 3;
+
 pub const MU: usize = 8;
 pub const DELTA: usize = 3;
 pub const POLYVECCOMPRESSEDBYTES: usize = K * (N * 10) / 8;
@@ -229,10 +229,55 @@ fn gen_matrix(seed: &[u8]) -> Matrix {
     for idx in 0..K {
         for idx2 in 0..K {
             xof.read(&mut buf);
-            matrix.vecs[idx].polys[idx2] = Poly::from_bytes_q(&buf);
+            matrix.vecs[idx].polys[idx2] = Poly::from(&buf);
         }
     }
     matrix
+}
+
+fn gen_secret(seed: &[u8; NOISE_SEEDBYTES]) -> Vector {
+    let mut hasher = sha3::Shake128::default();
+    hasher.input(seed);
+    let mut xof = hasher.xof_result();
+
+    let mut secret = Vector::default();
+    let mut buf = [0; 4];
+    for idx in 0..K {
+        for idx2 in (0..N).step_by(4) {
+            xof.read(&mut buf);
+
+            let t = load_littleendian(&buf);
+            let mut d = 0;
+            for idx3 in 0..4 {
+                d += (t >> idx3) & 0x11111111;
+            }
+
+            let mut a = [0; 4];
+            let mut b = [0; 4];
+            a[0] = (d & 0xF) as u16;
+            b[0] = ((d >> 4) & 0xF) as u16;
+            a[1] = ((d >> 8) & 0xF) as u16;
+            b[1] = ((d >> 12) & 0xF) as u16;
+            a[2] = ((d >> 16) & 0xF) as u16;
+            b[2] = ((d >> 20) & 0xF) as u16;
+            a[3] = ((d >> 24) & 0xF) as u16;
+            b[3] = (d >> 28) as u16;
+
+            secret.polys[idx].coeffs[idx2] = (a[0]).wrapping_sub(b[0]);
+            secret.polys[idx].coeffs[idx2 + 1] = (a[1]).wrapping_sub(b[1]);
+            secret.polys[idx].coeffs[idx2 + 2] = (a[2]).wrapping_sub(b[2]);
+            secret.polys[idx].coeffs[idx2 + 3] = (a[3]).wrapping_sub(b[3]);
+        }
+    }
+    secret
+}
+
+fn load_littleendian(bytes: &[u8; 4]) -> u64 {
+    let mut r = 0;
+    for idx in 0..bytes.len() {
+        r |= u64::from(bytes[idx]) << (8 * idx);
+    }
+    r
 }
 
 /// Returns a tuple (public_key, secret_key), of PublicKey, SecretKey objects
@@ -271,8 +316,8 @@ fn indcpa_kem_enc(
     pk: &PublicKey,
 ) -> [u8; BYTES_CCA_DEC] {
     let mut a = Matrix::default();
-    let mut sk_vec1 = Vector::default();
-    let mut pk_vec1: Vector;
+    let mut sk_vec = Vector::default();
+    let mut pk_vec: Vector;
     let mut ciphertext = [0; BYTES_CCA_DEC];
     let mut public_key = PublicKey([0; PUBLICKEYBYTES]);
     let mut v1_vec: Vector = Vector::default();
@@ -280,47 +325,47 @@ fn indcpa_kem_enc(
     let mut m_p = Poly::default();
     let mut rec = [0; RECONBYTES_KEM];
 
-    let (pk_vec, seed) = pk.0.split_at(POLYVECCOMPRESSEDBYTES);
+    let (pk, seed) = pk.0.split_at(POLYVECCOMPRESSEDBYTES);
+
+    a = gen_matrix(seed);
+    sk_vec = gen_secret(&noiseseed);
+
+    // Compute b' (called `res` in reference implementation)
+    pk_vec = a.mul_transpose(sk_vec);
+
+    // Rounding of b' into v_p
+    pk_vec = (pk_vec + 4) >> 3;
+
     unsafe {
-        ffi::GenMatrix(&mut a as *mut Matrix, seed.as_ptr());
-        println!("{:?}", a);
-        a = gen_matrix(seed);
-        println!("{:?}", a);
-        ffi::GenSecret(&mut sk_vec1 as *mut Vector, noiseseed.as_ptr());
-
-        // Compute b' (called `res` in reference implementation)
-        pk_vec1 = a.mul_transpose(sk_vec1);
-
-        // Rounding of b' into v_p
-        pk_vec1 = (pk_vec1 + 4) >> 3;
-
         // ct = POLVECp2BS(v_p)
-        ffi::POLVECp2BS(ciphertext.as_mut_ptr(), &mut pk_vec1 as *mut Vector);
+        ffi::POLVECp2BS(ciphertext.as_mut_ptr(), &mut pk_vec as *mut Vector);
 
         // v' = BS2POLVECp(pk)
-        ffi::BS2POLVECp(pk_vec.as_ptr(), &mut v1_vec as *mut Vector);
+        ffi::BS2POLVECp(pk.as_ptr(), &mut v1_vec as *mut Vector);
+    }
 
-        // pol_p = VectorMul(v', s', p)
-        pol_p = v1_vec * sk_vec1;
+    // pol_p = VectorMul(v', s', p)
+    pol_p = v1_vec * sk_vec;
 
-        // m_p = MSG2POL(m)
-        for idx in 0..KEYBYTES {
-            for idx2 in 0..8 {
-                m_p.coeffs[8 * idx + idx2] = u16::from((message_received[idx] >> idx2) & 0x01);
-            }
+    // m_p = MSG2POL(m)
+    for idx in 0..KEYBYTES {
+        for idx2 in 0..8 {
+            m_p.coeffs[8 * idx + idx2] = u16::from((message_received[idx] >> idx2) & 0x01);
         }
-        m_p = m_p << MSG2POL_CONST;
+    }
+    m_p = m_p << MSG2POL_CONST;
 
-        // m_p = m_p + pol_p mod p
-        m_p = m_p + pol_p;
+    // m_p = m_p + pol_p mod p
+    m_p = m_p + pol_p;
 
+    unsafe {
         // rec = ReconDataGen(m_p)
         ffi::ReconDataGen(&mut m_p as *mut Poly, rec.as_mut_ptr());
-
-        // CipherText_cpa = (rec || ct)
-        ciphertext[POLYVECCOMPRESSEDBYTES..POLYVECCOMPRESSEDBYTES + RECONBYTES_KEM]
-            .copy_from_slice(&rec);
     }
+
+    // CipherText_cpa = (rec || ct)
+    ciphertext[POLYVECCOMPRESSEDBYTES..POLYVECCOMPRESSEDBYTES + RECONBYTES_KEM]
+        .copy_from_slice(&rec);
     ciphertext
 }
 
@@ -362,23 +407,9 @@ fn indcpa_kem_dec(sk: &SecretKey, ciphertext: &[u8; BYTES_CCA_DEC]) -> [u8; MESS
     message_dec
 }
 
-pub struct Saber;
-
-impl SaberImplementation for Saber {
-    type Vector = [Poly; 3];
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The structs `LightSaber`, `Saber`, `FireSaber` exist to declare which
-    /// set of parameters is to be used. As such, they hold no runtime data
-    /// and their size in memory should be 0.
-    #[test]
-    fn saber_has_no_size() {
-        assert_eq!(core::mem::size_of::<Saber>(), 0);
-    }
 
     #[test]
     fn indcpa_impl() {
