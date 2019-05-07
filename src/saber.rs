@@ -229,12 +229,7 @@ fn gen_matrix(seed: &[u8]) -> Matrix {
     for idx in 0..K {
         for idx2 in 0..K {
             xof.read(&mut buf);
-
-            let ref mut poly = matrix.vecs[idx].polys[idx2];
-            unsafe {
-                // TODO(dsprenkels) LEFT HERE > implement BS2POLq
-                ffi::BS2POLq(buf.as_ptr(), poly as *mut Poly);
-            }
+            matrix.vecs[idx].polys[idx2] = Poly::from_bytes_q(&buf);
         }
     }
     matrix

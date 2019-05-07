@@ -90,7 +90,7 @@ impl Shr<u8> for Poly {
     fn shr(self, rhs: u8) -> Self {
         let Poly { mut coeffs } = self;
         for i in 0..N {
-            coeffs[i] = coeffs[i] >> rhs;
+            coeffs[i] >>= rhs;
         }
         Poly { coeffs }
     }
@@ -161,8 +161,27 @@ impl Poly {
             m
         );
         let Poly { mut coeffs } = self;
-        for i in 0..N {
-            coeffs[i] &= m - 1;
+        for coeff in coeffs.iter_mut() {
+            *coeff &= m - 1;
+        }
+        Poly { coeffs }
+    }
+
+    #[inline]
+    pub fn from_bytes_q(bytes: &[u8]) -> Self {
+        let mut coeffs = [0; N];
+        for idx in 0..(N / 8) {
+            let bs = &bytes[13 * idx..13 * (idx + 1)];
+            let cs = &mut coeffs[8 * idx..8 * (idx + 1)];
+
+            cs[0] = u16::from(bs[0]) | (u16::from(bs[1]) << 8);
+            cs[1] = (u16::from(bs[1]) >> 5) | (u16::from(bs[2]) << 3) | (u16::from(bs[3]) << 11);
+            cs[2] = (u16::from(bs[3]) >> 2) | (u16::from(bs[4]) << 6);
+            cs[3] = (u16::from(bs[4]) >> 7) | (u16::from(bs[5]) << 1) | (u16::from(bs[6]) << 9);
+            cs[4] = (u16::from(bs[6]) >> 4) | (u16::from(bs[7]) << 4) | (u16::from(bs[8]) << 12);
+            cs[5] = (u16::from(bs[8]) >> 1) | (u16::from(bs[9]) << 7);
+            cs[6] = (u16::from(bs[9]) >> 6) | (u16::from(bs[10]) << 2) | (u16::from(bs[11]) << 10);
+            cs[7] = (u16::from(bs[11]) >> 3) | (u16::from(bs[12]) << 5);
         }
         Poly { coeffs }
     }
