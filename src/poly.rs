@@ -22,15 +22,11 @@ impl Add for Poly {
     type Output = Self;
 
     #[inline]
-    fn add(self, rhs: Self) -> Poly {
-        let Poly { coeffs: a } = self;
-        let Poly { coeffs: b } = rhs;
-        let mut c = [0_u16; N];
-
-        for i in 0..N {
-            c[i] = a[i].wrapping_add(b[i]);
+    fn add(mut self, rhs: Self) -> Poly {
+        for (coeff, other) in self.coeffs.iter_mut().zip(rhs.coeffs.iter()) {
+            *coeff = coeff.wrapping_add(*other);
         }
-        Poly { coeffs: c }
+        self
     }
 }
 
@@ -38,12 +34,11 @@ impl Add<u16> for Poly {
     type Output = Self;
 
     #[inline]
-    fn add(self, rhs: u16) -> Poly {
-        let Poly { mut coeffs } = self;
-        for coeff in coeffs.iter_mut() {
+    fn add(mut self, rhs: u16) -> Poly {
+        for coeff in self.coeffs.iter_mut() {
             *coeff = coeff.wrapping_add(rhs);
         }
-        Poly { coeffs }
+        self
     }
 }
 
@@ -74,12 +69,11 @@ impl Shl<u8> for Poly {
     type Output = Self;
 
     #[inline]
-    fn shl(self, rhs: u8) -> Self {
-        let Poly { mut coeffs } = self;
-        for coeff in coeffs.iter_mut() {
+    fn shl(mut self, rhs: u8) -> Self {
+        for coeff in self.coeffs.iter_mut() {
             *coeff <<= rhs;
         }
-        Poly { coeffs }
+        self
     }
 }
 
@@ -87,33 +81,11 @@ impl Shr<u8> for Poly {
     type Output = Self;
 
     #[inline]
-    fn shr(self, rhs: u8) -> Self {
-        let Poly { mut coeffs } = self;
-        for coeff in coeffs.iter_mut() {
+    fn shr(mut self, rhs: u8) -> Self {
+        for coeff in self.coeffs.iter_mut() {
             *coeff >>= rhs;
         }
-        Poly { coeffs }
-    }
-}
-
-impl<'a> From<&'a [u8; 416]> for Poly {
-    /// This function implements BS2POL, as described in Algorithm 7
-    fn from(bytes: &'a [u8; 416]) -> Self {
-        let mut coeffs = [0; N];
-        for idx in 0..(N / 8) {
-            let bs = &bytes[13 * idx..13 * (idx + 1)];
-            let cs = &mut coeffs[8 * idx..8 * (idx + 1)];
-
-            cs[0] = u16::from(bs[0]) | (u16::from(bs[1]) << 8);
-            cs[1] = (u16::from(bs[1]) >> 5) | (u16::from(bs[2]) << 3) | (u16::from(bs[3]) << 11);
-            cs[2] = (u16::from(bs[3]) >> 2) | (u16::from(bs[4]) << 6);
-            cs[3] = (u16::from(bs[4]) >> 7) | (u16::from(bs[5]) << 1) | (u16::from(bs[6]) << 9);
-            cs[4] = (u16::from(bs[6]) >> 4) | (u16::from(bs[7]) << 4) | (u16::from(bs[8]) << 12);
-            cs[5] = (u16::from(bs[8]) >> 1) | (u16::from(bs[9]) << 7);
-            cs[6] = (u16::from(bs[9]) >> 6) | (u16::from(bs[10]) << 2) | (u16::from(bs[11]) << 10);
-            cs[7] = (u16::from(bs[11]) >> 3) | (u16::from(bs[12]) << 5);
-        }
-        Poly { coeffs }
+        self
     }
 }
 
@@ -154,17 +126,66 @@ impl Default for Poly {
 
 impl Poly {
     #[inline]
-    pub fn reduce(self, m: u16) -> Self {
+    pub fn reduce(mut self, m: u16) -> Self {
         debug_assert!(
             m.is_power_of_two(),
             "m must be a power of two, not 0x{:02x}",
             m
         );
-        let Poly { mut coeffs } = self;
-        for coeff in coeffs.iter_mut() {
+        for coeff in self.coeffs.iter_mut() {
             *coeff &= m - 1;
         }
-        Poly { coeffs }
+        self
+    }
+
+    /// This function implements BS2POLq, as described in Algorithm 7
+    pub fn from_bytes_mod_q(bytes: &[u8]) -> Self {
+        debug_assert_eq!(bytes.len(), 13 * 256 / 8);
+        let mut poly = Poly::default();
+        for (bs, cs) in bytes.chunks_exact(13).zip(poly.coeffs.chunks_exact_mut(8)) {
+            // In this functions, we do not have to mask the loaded values s.t. they are <2^16,
+            // because 2^16 ≡ 0, as such all overloaded bits are equivalent to 0.
+            cs[0] = u16::from(bs[0]) | (u16::from(bs[1]) << 8);
+            cs[1] = (u16::from(bs[1]) >> 5) | (u16::from(bs[2]) << 3) | (u16::from(bs[3]) << 11);
+            cs[2] = (u16::from(bs[3]) >> 2) | (u16::from(bs[4]) << 6);
+            cs[3] = (u16::from(bs[4]) >> 7) | (u16::from(bs[5]) << 1) | (u16::from(bs[6]) << 9);
+            cs[4] = (u16::from(bs[6]) >> 4) | (u16::from(bs[7]) << 4) | (u16::from(bs[8]) << 12);
+            cs[5] = (u16::from(bs[8]) >> 1) | (u16::from(bs[9]) << 7);
+            cs[6] = (u16::from(bs[9]) >> 6) | (u16::from(bs[10]) << 2) | (u16::from(bs[11]) << 10);
+            cs[7] = (u16::from(bs[11]) >> 3) | (u16::from(bs[12]) << 5);
+        }
+        poly
+    }
+
+    /// This function implements BS2POLp, as described in Algorithm 11
+    pub fn from_bytes_mod_p(bytes: &[u8]) -> Self {
+        debug_assert_eq!(bytes.len(), 10 * 256 / 8);
+        let mut poly = Poly::default();
+        for (bs, cs) in bytes.chunks_exact(5).zip(poly.coeffs.chunks_exact_mut(4)) {
+            cs[0] = u16::from(bs[0])  & 0xFF |         ((u16::from(bs[1] & 0x03) << 8));
+            cs[1] = ((u16::from(bs[1]) >> 2) & 0x3F) | ((u16::from(bs[2] & 0x0F) << 6));
+            cs[2] = ((u16::from(bs[2]) >> 4) & 0x0F) | ((u16::from(bs[3] & 0x3F) << 4));
+            cs[3] = ((u16::from(bs[3]) >> 6) & 0x03) | ((u16::from(bs[4] & 0xFF) << 2));
+        }
+        poly
+    }
+
+    /// This function implements POLq2BS, as described in Algorithm 8
+    pub fn read_bytes_mod_q(self, bs: &[u8]) {
+        debug_assert_eq!(bs.len(), 416);
+        unimplemented!()
+    }
+
+    /// This function implements POLp2BS, as described in Algorithm 12
+    pub fn read_bytes_mod_p(self, bytes: &mut [u8]) {
+        debug_assert_eq!(bytes.len(), 10 * 256 / 8);
+        for (cs, bs) in self.coeffs.chunks_exact(4).zip(bytes.chunks_exact_mut(5)) {
+            bs[0] = (cs[0] & 0xFF) as u8;
+            bs[1] = ((cs[0] >> 8) & 0x03) as u8 | ((cs[1] & 0x3F) as u8) << 2;
+            bs[2] = ((cs[1] >> 6) & 0x0F) as u8 | ((cs[2] & 0x0F) as u8) << 4;
+            bs[3] = ((cs[2] >> 4) & 0x3F) as u8 | ((cs[3] & 0x03) as u8) << 6;
+            bs[4] = ((cs[3] >> 2) & 0xFF) as u8;
+        }
     }
 }
 

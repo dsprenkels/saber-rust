@@ -90,10 +90,10 @@ pub struct Vector {
 impl Add<Vector> for Vector {
     type Output = Vector;
 
-    fn add(self, rhs: Self) -> Vector {
+    fn add(mut self, rhs: Self) -> Vector {
         let Vector { mut polys } = self;
-        for i in 0..K {
-            polys[i] = polys[i] + rhs.polys[i];
+        for (coeff, other) in polys.iter_mut().zip(rhs.polys.iter()) {
+            *coeff = *coeff + *other;
         }
         Vector { polys }
     }
@@ -103,10 +103,10 @@ impl Add<u16> for Vector {
     type Output = Self;
 
     #[inline]
-    fn add(self, rhs: u16) -> Vector {
+    fn add(mut self, rhs: u16) -> Vector {
         let Vector { mut polys } = self;
-        for i in 0..K {
-            polys[i] = polys[i] + rhs;
+        for poly in polys.iter_mut() {
+            *poly = *poly + rhs;
         }
         Vector { polys }
     }
@@ -116,10 +116,12 @@ impl Mul<Vector> for Vector {
     type Output = Poly;
 
     /// As implemented by Algorithm 17
-    fn mul(self, rhs: Self) -> Poly {
+    #[inline]
+    fn mul(mut self, rhs: Self) -> Poly {
+        let Vector { mut polys } = self;
         let mut acc = Poly::default();
-        for i in 0..K {
-            acc = acc + (self.polys[i] * rhs.polys[i]);
+        for (poly, other) in polys.iter_mut().zip(rhs.polys.iter()) {
+            acc = acc + (*poly * *other);
         }
         acc
     }
@@ -129,12 +131,11 @@ impl Shr<u8> for Vector {
     type Output = Self;
 
     #[inline]
-    fn shr(self, rhs: u8) -> Self {
-        let Vector { mut polys } = self;
-        for i in 0..K {
-            polys[i] = polys[i] >> rhs;
+    fn shr(mut self, rhs: u8) -> Self {
+        for poly in self.polys.iter_mut() {
+            *poly = *poly >> rhs;
         }
-        Vector { polys }
+        self
     }
 }
 
@@ -142,6 +143,26 @@ impl Default for Vector {
     fn default() -> Self {
         Vector {
             polys: [Poly::default(); K],
+        }
+    }
+}
+
+impl Vector {
+    /// This function implements BS2POLVECp, as described in Algorithm 13
+    pub fn from_bytes_mod_p(bs: &[u8]) -> Self {
+        debug_assert_eq!(bs.len(), K * 10 * 256 / 8);
+        let mut vec = Vector::default();
+        for (bs_chunk, poly) in bs.chunks_exact(10 * 256 / 8).zip(vec.polys.iter_mut()) {
+            *poly = Poly::from_bytes_mod_p(bs_chunk);
+        }
+        vec
+    }
+
+    /// This function implements POLVECp2BS, as described in Algorithm 14
+    pub fn read_mod_p(&self, bs: &mut [u8]) {
+        debug_assert_eq!(bs.len(), K * 10 * 256 / 8);
+        for (poly, bs_chunk) in self.polys.iter().zip(bs.chunks_exact_mut(10 * 256 / 8)) {
+            poly.read_bytes_mod_p(bs_chunk);
         }
     }
 }
@@ -156,12 +177,11 @@ impl Add<u16> for Matrix {
     type Output = Self;
 
     #[inline]
-    fn add(self, rhs: u16) -> Matrix {
-        let Matrix { mut vecs } = self;
-        for i in 0..K {
-            vecs[i] = vecs[i] + rhs;
+    fn add(mut self, rhs: u16) -> Matrix {
+        for vec in self.vecs.iter_mut() {
+            *vec = *vec + rhs;
         }
-        Matrix { vecs }
+        self
     }
 }
 
@@ -177,17 +197,17 @@ impl Default for Matrix {
 impl Matrix {
     /// As implemented by Algorithm 16
     #[inline]
-    fn mul(self, rhs: Vector) -> Vector {
+    fn mul(mut self, rhs: Vector) -> Vector {
         let mut result = Vector::default();
-        for i in 0..K {
-            result.polys[i] = self.vecs[i] * rhs;
+        for (vec, result_vec) in self.vecs.iter_mut().zip(result.polys.iter_mut()) {
+            *result_vec = *vec * rhs;
         }
         result
     }
 
     /// As implemented by Algorithm 16
     #[inline]
-    fn mul_transpose(self, rhs: Vector) -> Vector {
+    fn mul_transpose(mut self, rhs: Vector) -> Vector {
         let mut result = Vector::default();
         for i in 0..K {
             for j in 0..K {
@@ -202,10 +222,10 @@ impl Shr<u8> for Matrix {
     type Output = Self;
 
     #[inline]
-    fn shr(self, rhs: u8) -> Self {
+    fn shr(mut self, rhs: u8) -> Self {
         let Matrix { mut vecs } = self;
-        for i in 0..N {
-            vecs[i] = vecs[i] >> rhs;
+        for vec in vecs.iter_mut() {
+            *vec = *vec >> rhs;
         }
         Matrix { vecs }
     }
@@ -225,11 +245,11 @@ fn gen_matrix(seed: &[u8]) -> Matrix {
     let mut xof = hasher.xof_result();
 
     let mut matrix = Matrix::default();
-    let mut buf = [0; 13 * N / 8];
-    for idx in 0..K {
-        for idx2 in 0..K {
+    for vec in matrix.vecs.iter_mut() {
+        for poly in vec.polys.iter_mut() {
+            let mut buf = [0; 13 * N / 8];
             xof.read(&mut buf);
-            matrix.vecs[idx].polys[idx2] = Poly::from(&buf);
+            *poly = Poly::from_bytes_mod_q(&buf);
         }
     }
     matrix
@@ -242,14 +262,14 @@ fn gen_secret(seed: &[u8; NOISE_SEEDBYTES]) -> Vector {
 
     let mut secret = Vector::default();
     let mut buf = [0; 4];
-    for idx in 0..K {
-        for idx2 in (0..N).step_by(4) {
+    for poly in secret.polys.iter_mut() {
+        for cs in poly.coeffs.chunks_exact_mut(4) {
             xof.read(&mut buf);
 
-            let t = load_littleendian(&buf);
+            let t = load_littleendian(buf);
             let mut d = 0;
-            for idx3 in 0..4 {
-                d += (t >> idx3) & 0x11111111;
+            for idx in 0..4 {
+                d += (t >> idx) & 0x1111_1111;
             }
 
             let mut a = [0; 4];
@@ -263,19 +283,19 @@ fn gen_secret(seed: &[u8; NOISE_SEEDBYTES]) -> Vector {
             a[3] = ((d >> 24) & 0xF) as u16;
             b[3] = (d >> 28) as u16;
 
-            secret.polys[idx].coeffs[idx2] = (a[0]).wrapping_sub(b[0]);
-            secret.polys[idx].coeffs[idx2 + 1] = (a[1]).wrapping_sub(b[1]);
-            secret.polys[idx].coeffs[idx2 + 2] = (a[2]).wrapping_sub(b[2]);
-            secret.polys[idx].coeffs[idx2 + 3] = (a[3]).wrapping_sub(b[3]);
+            cs[0] = (a[0]).wrapping_sub(b[0]);
+            cs[1] = (a[1]).wrapping_sub(b[1]);
+            cs[2] = (a[2]).wrapping_sub(b[2]);
+            cs[3] = (a[3]).wrapping_sub(b[3]);
         }
     }
     secret
 }
 
-fn load_littleendian(bytes: &[u8; 4]) -> u64 {
+fn load_littleendian(bytes: [u8; 4]) -> u64 {
     let mut r = 0;
-    for idx in 0..bytes.len() {
-        r |= u64::from(bytes[idx]) << (8 * idx);
+    for (idx, b) in bytes.iter().enumerate() {
+        r |= u64::from(*b) << (8 * idx);
     }
     r
 }
@@ -336,21 +356,20 @@ fn indcpa_kem_enc(
     // Rounding of b' into v_p
     pk_vec = (pk_vec + 4) >> 3;
 
-    unsafe {
-        // ct = POLVECp2BS(v_p)
-        ffi::POLVECp2BS(ciphertext.as_mut_ptr(), &mut pk_vec as *mut Vector);
+    // ct = POLVECp2BS(v_p)
+    pk_vec.read_mod_p(&mut ciphertext[..POLYVECCOMPRESSEDBYTES]);
 
-        // v' = BS2POLVECp(pk)
-        ffi::BS2POLVECp(pk.as_ptr(), &mut v1_vec as *mut Vector);
-    }
+    // v' = BS2POLVECp(pk)
+    v1_vec = Vector::from_bytes_mod_p(pk);
 
     // pol_p = VectorMul(v', s', p)
     pol_p = v1_vec * sk_vec;
 
     // m_p = MSG2POL(m)
-    for idx in 0..KEYBYTES {
-        for idx2 in 0..8 {
-            m_p.coeffs[8 * idx + idx2] = u16::from((message_received[idx] >> idx2) & 0x01);
+    let m_p_chunks_exact = m_p.coeffs.chunks_exact_mut(8);
+    for (idx, (b, coeffs_chunk)) in message_received.iter().zip(m_p_chunks_exact).enumerate() {
+        for (idx2, coeff) in coeffs_chunk.iter_mut().enumerate() {
+            *coeff = u16::from((b >> idx2) & 0x01);
         }
     }
     m_p = m_p << MSG2POL_CONST;
