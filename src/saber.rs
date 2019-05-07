@@ -153,7 +153,7 @@ impl Vector {
         debug_assert_eq!(bs.len(), K * 10 * 256 / 8);
         let mut vec = Vector::default();
         for (bs_chunk, poly) in bs.chunks_exact(10 * 256 / 8).zip(vec.polys.iter_mut()) {
-            *poly = Poly::from_bytes_mod_p(bs_chunk);
+            *poly = Poly::from_bytes_10bit(bs_chunk);
         }
         vec
     }
@@ -162,7 +162,7 @@ impl Vector {
     pub fn read_mod_p(&self, bs: &mut [u8]) {
         debug_assert_eq!(bs.len(), K * 10 * 256 / 8);
         for (poly, bs_chunk) in self.polys.iter().zip(bs.chunks_exact_mut(10 * 256 / 8)) {
-            poly.read_bytes_mod_p(bs_chunk);
+            poly.read_bytes_10bit(bs_chunk);
         }
     }
 }
@@ -249,7 +249,7 @@ fn gen_matrix(seed: &[u8]) -> Matrix {
         for poly in vec.polys.iter_mut() {
             let mut buf = [0; 13 * N / 8];
             xof.read(&mut buf);
-            *poly = Poly::from_bytes_mod_q(&buf);
+            *poly = Poly::from_bytes_13bit(&buf);
         }
     }
     matrix
@@ -300,9 +300,17 @@ fn load_littleendian(bytes: [u8; 4]) -> u64 {
     r
 }
 
+/// This function implements ReconDataGen, as described in Algorithm 19
+fn recon_data_gen(dest: &mut [u8], poly: &Poly) {
+    const C: u8 = 10 - (DELTA as u8) - 1;
+    debug_assert_eq!(dest.len(), RECONBYTES_KEM);
+    debug_assert_eq!(C, 6);
+    (poly.reduce(P) >> C).read_bytes_4bit(dest);
+}
+
 /// Returns a tuple (public_key, secret_key), of PublicKey, SecretKey objects
 // C type in reference: void indcpa_kem_keypair(unsigned char *pk, unsigned char *sk);
-fn indcpa_kem_keypair() -> (PublicKey, SecretKey) {
+pub fn indcpa_kem_keypair() -> (PublicKey, SecretKey) {
     let mut a = Matrix::default();
     let mut sk_vec = Vector::default();
     let mut pk_vec;
@@ -330,7 +338,7 @@ fn indcpa_kem_keypair() -> (PublicKey, SecretKey) {
 }
 
 // C type in reference: void indcpa_kem_enc(unsigned char *message_received, unsigned char *noiseseed, const unsigned char *pk, unsigned char *ciphertext)
-fn indcpa_kem_enc(
+pub fn indcpa_kem_enc(
     message_received: &[u8; KEYBYTES],
     noiseseed: &[u8; NOISE_SEEDBYTES],
     pk: &PublicKey,
@@ -343,8 +351,8 @@ fn indcpa_kem_enc(
     let mut v1_vec: Vector = Vector::default();
     let pol_p: Poly;
     let mut m_p = Poly::default();
-    let mut rec = [0; RECONBYTES_KEM];
 
+    let (ct, rec) = ciphertext.split_at_mut(POLYVECCOMPRESSEDBYTES);
     let (pk, seed) = pk.0.split_at(POLYVECCOMPRESSEDBYTES);
 
     a = gen_matrix(seed);
@@ -357,7 +365,7 @@ fn indcpa_kem_enc(
     pk_vec = (pk_vec + 4) >> 3;
 
     // ct = POLVECp2BS(v_p)
-    pk_vec.read_mod_p(&mut ciphertext[..POLYVECCOMPRESSEDBYTES]);
+    pk_vec.read_mod_p(ct);
 
     // v' = BS2POLVECp(pk)
     v1_vec = Vector::from_bytes_mod_p(pk);
@@ -377,19 +385,15 @@ fn indcpa_kem_enc(
     // m_p = m_p + pol_p mod p
     m_p = m_p + pol_p;
 
-    unsafe {
-        // rec = ReconDataGen(m_p)
-        ffi::ReconDataGen(&mut m_p as *mut Poly, rec.as_mut_ptr());
-    }
+    // rec = ReconDataGen(m_p)
+    recon_data_gen(rec, &m_p);
 
     // CipherText_cpa = (rec || ct)
-    ciphertext[POLYVECCOMPRESSEDBYTES..POLYVECCOMPRESSEDBYTES + RECONBYTES_KEM]
-        .copy_from_slice(&rec);
     ciphertext
 }
 
 // C type in reference: void indcpa_kem_dec(const unsigned char *sk, const unsigned char *ciphertext, unsigned char message_dec[])
-fn indcpa_kem_dec(sk: &SecretKey, ciphertext: &[u8; BYTES_CCA_DEC]) -> [u8; MESSAGEBYTES] {
+pub fn indcpa_kem_dec(sk: &SecretKey, ciphertext: &[u8; BYTES_CCA_DEC]) -> [u8; MESSAGEBYTES] {
     let mut sk_vec = Vector::default();
     let mut b_vec = Vector::default();
     let mut message_dec_unpacked = Poly::default();

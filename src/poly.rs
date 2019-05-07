@@ -139,7 +139,7 @@ impl Poly {
     }
 
     /// This function implements BS2POLq, as described in Algorithm 7
-    pub fn from_bytes_mod_q(bytes: &[u8]) -> Self {
+    pub fn from_bytes_13bit(bytes: &[u8]) -> Self {
         debug_assert_eq!(bytes.len(), 13 * 256 / 8);
         let mut poly = Poly::default();
         for (bs, cs) in bytes.chunks_exact(13).zip(poly.coeffs.chunks_exact_mut(8)) {
@@ -158,26 +158,26 @@ impl Poly {
     }
 
     /// This function implements BS2POLp, as described in Algorithm 11
-    pub fn from_bytes_mod_p(bytes: &[u8]) -> Self {
+    pub fn from_bytes_10bit(bytes: &[u8]) -> Self {
         debug_assert_eq!(bytes.len(), 10 * 256 / 8);
         let mut poly = Poly::default();
         for (bs, cs) in bytes.chunks_exact(5).zip(poly.coeffs.chunks_exact_mut(4)) {
-            cs[0] = u16::from(bs[0])  & 0xFF |         ((u16::from(bs[1] & 0x03) << 8));
-            cs[1] = ((u16::from(bs[1]) >> 2) & 0x3F) | ((u16::from(bs[2] & 0x0F) << 6));
-            cs[2] = ((u16::from(bs[2]) >> 4) & 0x0F) | ((u16::from(bs[3] & 0x3F) << 4));
-            cs[3] = ((u16::from(bs[3]) >> 6) & 0x03) | ((u16::from(bs[4] & 0xFF) << 2));
+            cs[0] = u16::from(bs[0]) & 0xFF | (u16::from(bs[1] & 0x03) << 8);
+            cs[1] = ((u16::from(bs[1]) >> 2) & 0x3F) | (u16::from(bs[2] & 0x0F) << 6);
+            cs[2] = ((u16::from(bs[2]) >> 4) & 0x0F) | (u16::from(bs[3] & 0x3F) << 4);
+            cs[3] = ((u16::from(bs[3]) >> 6) & 0x03) | (u16::from(bs[4] & 0xFF) << 2);
         }
         poly
     }
 
     /// This function implements POLq2BS, as described in Algorithm 8
-    pub fn read_bytes_mod_q(self, bs: &[u8]) {
+    pub fn read_bytes_13bit(self, bs: &[u8]) {
         debug_assert_eq!(bs.len(), 416);
         unimplemented!()
     }
 
     /// This function implements POLp2BS, as described in Algorithm 12
-    pub fn read_bytes_mod_p(self, bytes: &mut [u8]) {
+    pub fn read_bytes_10bit(self, bytes: &mut [u8]) {
         debug_assert_eq!(bytes.len(), 10 * 256 / 8);
         for (cs, bs) in self.coeffs.chunks_exact(4).zip(bytes.chunks_exact_mut(5)) {
             bs[0] = (cs[0] & 0xFF) as u8;
@@ -185,6 +185,19 @@ impl Poly {
             bs[2] = ((cs[1] >> 6) & 0x0F) as u8 | ((cs[2] & 0x0F) as u8) << 4;
             bs[3] = ((cs[2] >> 4) & 0x3F) as u8 | ((cs[3] & 0x03) as u8) << 6;
             bs[4] = ((cs[3] >> 2) & 0xFF) as u8;
+        }
+    }
+
+    /// This function mirrors the refererence implementation's `SABER_pack_4bit` function
+    pub fn read_bytes_4bit(self, bytes: &mut [u8]) {
+        debug_assert_eq!(bytes.len(), 4 * 256 / 8);
+
+        for b in bytes.iter_mut() {
+            *b = 0;
+        }
+
+        for (cs, b) in self.coeffs.chunks_exact(2).zip(bytes.iter_mut()) {
+            *b = (cs[0] & 0x0F) as u8 | ((cs[1] & 0x0F) << 4) as u8;
         }
     }
 }
