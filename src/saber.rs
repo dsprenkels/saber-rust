@@ -439,30 +439,11 @@ pub fn indcpa_kem_dec(full_sk: &SecretKey, ciphertext: &[u8; BYTES_CCA_DEC]) -> 
     // v' = VectorMul(b, s, p)
     let mut v1 = b_vec * sk_vec;
 
-    unsafe {
-        // m' = Recon(rec, v')
-        ffi::Recon(
-            &mut v1 as *mut Poly,
-            rec.as_mut_ptr(),
-            &mut message_dec_unpacked as *mut Poly,
-        );
-    }
-
-    // m = POL2MSG(m')
-    message_dec_unpacked.read_bytes_msg(&mut message_dec);
-
-    println!("C > message_dec_unpacked: {:X?}", message_dec_unpacked);
-    println!("C > message_dec: {:X?}", message_dec);
-
     // m' = Recon(rec, v')
     message_dec_unpacked = recon(&rec, &v1);
 
     // m = POL2MSG(m')
     message_dec_unpacked.read_bytes_msg(&mut message_dec);
-
-    println!("Rust > message_dec_unpacked: {:X?}", message_dec_unpacked);
-    println!("Rust > message_dec: {:X?}", message_dec);
-
     message_dec
 }
 
