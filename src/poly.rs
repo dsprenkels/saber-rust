@@ -154,6 +154,9 @@ impl Poly {
             cs[6] = (u16::from(bs[9]) >> 6) | (u16::from(bs[10]) << 2) | (u16::from(bs[11]) << 10);
             cs[7] = (u16::from(bs[11]) >> 3) | (u16::from(bs[12]) << 5);
         }
+        for coeff in poly.coeffs.iter_mut() {
+            *coeff &= 0x1FFF;
+        }
         poly
     }
 

@@ -147,6 +147,16 @@ impl Default for Vector {
 }
 
 impl Vector {
+    /// This function implements BS2POLVECq, as described in Algorithm 9
+    pub fn from_bytes_mod_q(bs: &[u8]) -> Self {
+        debug_assert_eq!(bs.len(), K * 13 * 256 / 8);
+        let mut vec = Vector::default();
+        for (bs_chunk, poly) in bs.chunks_exact(13 * 256 /8).zip(vec.polys.iter_mut()) {
+            *poly = Poly::from_bytes_13bit(bs_chunk);
+        }
+        vec
+    }
+
     /// This function implements BS2POLVECp, as described in Algorithm 13
     pub fn from_bytes_mod_p(bs: &[u8]) -> Self {
         debug_assert_eq!(bs.len(), K * 10 * 256 / 8);
@@ -384,8 +394,7 @@ pub fn indcpa_kem_enc(
 }
 
 // C type in reference: void indcpa_kem_dec(const unsigned char *sk, const unsigned char *ciphertext, unsigned char message_dec[])
-pub fn indcpa_kem_dec(sk: &SecretKey, ciphertext: &[u8; BYTES_CCA_DEC]) -> [u8; MESSAGEBYTES] {
-    let mut sk_vec = Vector::default();
+pub fn indcpa_kem_dec(full_sk: &SecretKey, ciphertext: &[u8; BYTES_CCA_DEC]) -> [u8; MESSAGEBYTES] {
     let mut b_vec = Vector::default();
     let mut message_dec_unpacked = Poly::default();
     let mut message_dec = [0; MESSAGEBYTES];
@@ -395,10 +404,13 @@ pub fn indcpa_kem_dec(sk: &SecretKey, ciphertext: &[u8; BYTES_CCA_DEC]) -> [u8; 
     let mut rec = [0; RECONBYTES_KEM];
     rec.copy_from_slice(&ciphertext[POLYVECCOMPRESSEDBYTES..]);
 
-    unsafe {
-        // s = BS2POLVECq(SecretKey_cpa)
-        ffi::BS2POLVECq(sk.0.as_ptr(), &mut sk_vec as *mut Vector);
+    // Unpack the secret key from the full SecretKey buffer
+    let (sk, _) = full_sk.0.split_at(INDCPA_SECRETKEYBYTES);
 
+    // s = BS2POLVECq(SecretKey_cpa)
+    let sk_vec = Vector::from_bytes_mod_q(sk);
+
+    unsafe {
         // b = BS2BOLVECp(ct)
         ffi::BS2POLVECp(ct.as_ptr(), &mut b_vec as *mut Vector);
 
