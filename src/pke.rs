@@ -1,6 +1,4 @@
-#![allow(unused)]
-
-use core::ops::{Add, Mul, Shr, Sub};
+use core::ops::{Add, Mul, Shr};
 
 use sha3::digest::{ExtendableOutput, Input, XofReader};
 
@@ -19,22 +17,21 @@ pub const RECONBYTES: usize = RECON_SIZE * N / 8;
 pub const RECONBYTES_KEM: usize = (RECON_SIZE + 1) * N / 8;
 pub const INDCPA_PUBLICKEYBYTES: usize = 992;
 pub const INDCPA_SECRETKEYBYTES: usize = 1248;
-pub const PUBLICKEYBYTES: usize = 992;
-pub const SECRETKEYBYTES: usize = 2304;
 pub const BYTES_CCA_DEC: usize = 1088;
 
+#[cfg(test)]
 mod ffi {
     use super::*;
 
     extern "C" {
-        pub fn indcpa_kem_keypair(pk: *mut PublicKey, sk: *mut SecretKey);
+        pub fn indcpa_kem_keypair(pk: *mut u8, sk: *mut u8);
         pub fn indcpa_kem_enc(
             message_received: *mut u8,
             noiseseed: *mut u8,
-            pk: *const PublicKey,
+            pk: *const u8,
             ciphertext: *mut u8,
         );
-        pub fn indcpa_kem_dec(sk: *const SecretKey, ciphertext: *const u8, message_dec: *mut u8);
+        pub fn indcpa_kem_dec(sk: *const u8, ciphertext: *const u8, message_dec: *mut u8);
         pub fn randombytes(output: *mut u8, len: u64);
         pub fn shake128(output: *mut u8, outlen: u64, input: *const u8, inlen: u64);
 
@@ -89,7 +86,7 @@ pub struct Vector {
 impl Add<Vector> for Vector {
     type Output = Vector;
 
-    fn add(mut self, rhs: Self) -> Vector {
+    fn add(self, rhs: Self) -> Vector {
         let Vector { mut polys } = self;
         for (coeff, other) in polys.iter_mut().zip(rhs.polys.iter()) {
             *coeff = *coeff + *other;
@@ -102,7 +99,7 @@ impl Add<u16> for Vector {
     type Output = Self;
 
     #[inline]
-    fn add(mut self, rhs: u16) -> Vector {
+    fn add(self, rhs: u16) -> Vector {
         let Vector { mut polys } = self;
         for poly in polys.iter_mut() {
             *poly = *poly + rhs;
@@ -116,7 +113,7 @@ impl Mul<Vector> for Vector {
 
     /// As implemented by Algorithm 17
     #[inline]
-    fn mul(mut self, rhs: Self) -> Poly {
+    fn mul(self, rhs: Self) -> Poly {
         let Vector { mut polys } = self;
         let mut acc = Poly::default();
         for (poly, other) in polys.iter_mut().zip(rhs.polys.iter()) {
@@ -224,7 +221,7 @@ impl Matrix {
 
     /// As implemented by Algorithm 16
     #[inline]
-    fn mul_transpose(mut self, rhs: Vector) -> Vector {
+    fn mul_transpose(self, rhs: Vector) -> Vector {
         let mut result = Vector::default();
         for i in 0..K {
             for j in 0..K {
@@ -239,7 +236,7 @@ impl Shr<u8> for Matrix {
     type Output = Self;
 
     #[inline]
-    fn shr(mut self, rhs: u8) -> Self {
+    fn shr(self, rhs: u8) -> Self {
         let Matrix { mut vecs } = self;
         for vec in vecs.iter_mut() {
             *vec = *vec >> rhs;
@@ -249,10 +246,51 @@ impl Shr<u8> for Matrix {
 }
 
 #[repr(C)]
-pub struct PublicKey([u8; INDCPA_PUBLICKEYBYTES]);
+#[derive(Clone)]
+pub struct PublicKey {
+    vec: Vector,
+    seed: [u8; SEEDBYTES],
+}
+
+impl PublicKey {
+    pub fn to_bytes(&self) -> [u8; INDCPA_PUBLICKEYBYTES] {
+        let mut bytes = [0; INDCPA_PUBLICKEYBYTES];
+        let (pk, seed) = bytes.split_at_mut(POLYVECCOMPRESSEDBYTES);
+        self.vec.read_mod_p(pk);
+        seed.copy_from_slice(&self.seed);
+        bytes
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        debug_assert_eq!(bytes.len(), INDCPA_PUBLICKEYBYTES);
+        let (vec_bytes, seed_bytes) = bytes.split_at(POLYVECCOMPRESSEDBYTES);
+        let vec = Vector::from_bytes_mod_p(vec_bytes);
+        let mut seed = [0; SEEDBYTES];
+        seed.copy_from_slice(seed_bytes);
+        PublicKey { vec, seed }
+    }
+}
 
 #[repr(C)]
-pub struct SecretKey([u8; INDCPA_SECRETKEYBYTES]);
+#[derive(Clone)]
+pub struct SecretKey {
+    vec: Vector,
+}
+
+impl SecretKey {
+    pub fn to_bytes(&self) -> [u8; INDCPA_SECRETKEYBYTES] {
+        let mut bytes = [0; INDCPA_SECRETKEYBYTES];
+        self.vec.read_mod_q(&mut bytes);
+        bytes
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        debug_assert_eq!(bytes.len(), INDCPA_SECRETKEYBYTES);
+        SecretKey {
+            vec: Vector::from_bytes_mod_q(bytes),
+        }
+    }
+}
 
 fn gen_matrix(seed: &[u8]) -> Matrix {
     debug_assert_eq!(seed.len(), SEEDBYTES);
@@ -272,7 +310,8 @@ fn gen_matrix(seed: &[u8]) -> Matrix {
     matrix
 }
 
-fn gen_secret(seed: &[u8; NOISE_SEEDBYTES]) -> Vector {
+fn gen_secret(seed: &[u8]) -> Vector {
+    debug_assert_eq!(seed.len(), NOISE_SEEDBYTES);
     let mut hasher = sha3::Shake128::default();
     hasher.input(seed);
     let mut xof = hasher.xof_result();
@@ -343,7 +382,7 @@ fn recon(rec: &[u8], poly: &Poly) -> Poly {
         // Observe that 2^[log2(p) - 1] is just (P/2), so K_i = 2*temp/P.
         // I.e. we calculate that by computing K_i ← temp >> (𝜖_p - 1).
         // *k |= (((temp >> (EPS_P - 1)) & 0x1) as u8) << idx;
-        *k |= ((temp >> (EPS_P - 1)) & 0x1);
+        *k |= (temp >> (EPS_P - 1)) & 0x1;
     }
     k_poly
 }
@@ -351,11 +390,11 @@ fn recon(rec: &[u8], poly: &Poly) -> Poly {
 /// Returns a tuple (public_key, secret_key), of PublicKey, SecretKey objects
 // C type in reference: void indcpa_kem_keypair(unsigned char *pk, unsigned char *sk);
 pub fn indcpa_kem_keypair() -> (PublicKey, SecretKey) {
-    let mut seed: [u8; SEEDBYTES] = rand::random();
-    let mut noiseseed: [u8; COINBYTES] = rand::random();
+    let seed: [u8; SEEDBYTES] = rand::random();
+    let noiseseed: [u8; COINBYTES] = rand::random();
 
     let a = gen_matrix(&seed);
-    let mut sk_vec = gen_secret(&noiseseed);
+    let sk_vec = gen_secret(&noiseseed);
 
     // Compute b (called `res` in reference implementation)
     let pk_vec = a.mul(sk_vec);
@@ -363,32 +402,25 @@ pub fn indcpa_kem_keypair() -> (PublicKey, SecretKey) {
     // Rounding of b
     let pk_vec = (pk_vec + 4) >> 3;
 
-    // Save the secret key
-    let mut sk = SecretKey([0; INDCPA_SECRETKEYBYTES]);
-    sk_vec.read_mod_q(&mut sk.0);
-
-    // Save the public key
-    let mut full_pk = PublicKey([0; INDCPA_PUBLICKEYBYTES]);
-    let (pk, pk_seed) = full_pk.0.split_at_mut(POLYVECCOMPRESSEDBYTES);
-    pk_vec.read_mod_p(pk);
-    pk_seed.copy_from_slice(&seed[..]);
-
-    (full_pk, sk)
+    (PublicKey { vec: pk_vec, seed }, SecretKey { vec: sk_vec })
 }
 
 // C type in reference: void indcpa_kem_enc(unsigned char *message_received, unsigned char *noiseseed, const unsigned char *pk, unsigned char *ciphertext)
 pub fn indcpa_kem_enc(
-    message_received: &[u8; KEYBYTES],
-    noiseseed: &[u8; NOISE_SEEDBYTES],
+    message_received: &[u8],
+    noiseseed: &[u8],
     pk: &PublicKey,
 ) -> [u8; BYTES_CCA_DEC] {
+    debug_assert_eq!(message_received.len(), KEYBYTES);
+    debug_assert_eq!(noiseseed.len(), NOISE_SEEDBYTES);
+
     let mut ciphertext = [0; BYTES_CCA_DEC];
 
     // CipherText_cpa = (rec || ct)
     let (ct, rec) = ciphertext.split_at_mut(POLYVECCOMPRESSEDBYTES);
 
     // Extract pk and seed_A from PublicKey_cpa = (pk || seed_A)
-    let (pk, seed) = pk.0.split_at(POLYVECCOMPRESSEDBYTES);
+    let PublicKey { vec: pk_vec, seed } = pk;
 
     // A = GenMatrix(seed_A)
     let a = gen_matrix(seed);
@@ -406,7 +438,7 @@ pub fn indcpa_kem_enc(
     pk_vec.read_mod_p(ct);
 
     // v' = BS2POLVECp(pk)
-    let v1_vec = Vector::from_bytes_mod_p(pk);
+    let v1_vec = pk.vec;
 
     // pol_p = VectorMul(v', s', p)
     let pol_p = v1_vec * sk_vec;
@@ -424,23 +456,20 @@ pub fn indcpa_kem_enc(
 }
 
 // C type in reference: void indcpa_kem_dec(const unsigned char *sk, const unsigned char *ciphertext, unsigned char message_dec[])
-pub fn indcpa_kem_dec(full_sk: &SecretKey, ciphertext: &[u8; BYTES_CCA_DEC]) -> [u8; MESSAGEBYTES] {
+pub fn indcpa_kem_dec(sk: &SecretKey, ciphertext: &[u8; BYTES_CCA_DEC]) -> [u8; MESSAGEBYTES] {
     // Extract (rec || ct) = CipherText
     let (ct, _) = ciphertext.split_at(POLYVECCOMPRESSEDBYTES);
     let mut rec = [0; RECONBYTES_KEM];
     rec.copy_from_slice(&ciphertext[POLYVECCOMPRESSEDBYTES..]);
 
     // Unpack the secret key from the full SecretKey buffer
-    let (sk, _) = full_sk.0.split_at(INDCPA_SECRETKEYBYTES);
-
-    // s = BS2POLVECq(SecretKey_cpa)
-    let sk_vec = Vector::from_bytes_mod_q(sk);
+    let sk_vec = sk.vec;
 
     // b = BS2BOLVECp(ct)
     let b_vec = Vector::from_bytes_mod_p(ct);
 
     // v' = VectorMul(b, s, p)
-    let mut v1 = b_vec * sk_vec;
+    let v1 = b_vec * sk_vec;
 
     // m' = Recon(rec, v')
     let message_dec_unpacked = recon(&rec, &v1);
@@ -459,8 +488,8 @@ mod tests {
     fn indcpa_impl() {
         let (pk, sk) = indcpa_kem_keypair();
         for _ in 0..100 {
-            let mut noiseseed = rand::random::<[u8; NOISE_SEEDBYTES]>();
-            let mut message_received = rand::random::<[u8; 32]>();
+            let noiseseed = rand::random::<[u8; NOISE_SEEDBYTES]>();
+            let message_received = rand::random::<[u8; 32]>();
             let ciphertext = indcpa_kem_enc(&message_received, &noiseseed, &pk);
             let message_dec = indcpa_kem_dec(&sk, &ciphertext);
             assert_eq!(&message_dec[..], &message_received[..]);
@@ -469,8 +498,8 @@ mod tests {
 
     #[test]
     fn indcpa_reference() {
-        let mut pk = PublicKey([0; INDCPA_PUBLICKEYBYTES]);
-        let mut sk = SecretKey([0; INDCPA_SECRETKEYBYTES]);
+        let mut pk: [u8; INDCPA_PUBLICKEYBYTES] = [0; INDCPA_PUBLICKEYBYTES];
+        let mut sk: [u8; INDCPA_SECRETKEYBYTES] = [0; INDCPA_SECRETKEYBYTES];
 
         for _ in 0..100 {
             let mut noiseseed = rand::random::<[u8; NOISE_SEEDBYTES]>();
@@ -478,50 +507,22 @@ mod tests {
             let mut ciphertext = [0; BYTES_CCA_DEC];
             let mut message_dec = [0; MESSAGEBYTES];
             unsafe {
-                ffi::indcpa_kem_keypair(&mut pk as *mut PublicKey, &mut sk as *mut SecretKey);
+                ffi::indcpa_kem_keypair(pk.as_mut_ptr(), sk.as_mut_ptr());
                 ffi::indcpa_kem_enc(
                     message_received.as_mut_ptr(),
                     noiseseed.as_mut_ptr(),
-                    &pk as *const PublicKey,
+                    pk.as_mut_ptr(),
                     ciphertext.as_mut_ptr(),
                 );
-                ffi::indcpa_kem_dec(
-                    &mut sk as *mut SecretKey,
-                    ciphertext.as_ptr(),
-                    message_dec.as_mut_ptr(),
-                );
+                ffi::indcpa_kem_dec(sk.as_ptr(), ciphertext.as_ptr(), message_dec.as_mut_ptr());
             }
             assert_eq!(&message_dec[..], &message_received[..]);
         }
     }
 
     #[test]
-    fn indcpa_keypair() {
-        let mut noiseseed = rand::random::<[u8; NOISE_SEEDBYTES]>();
-        let mut message_received = [b'A'; 32];
-        let mut ciphertext = [b'B'; BYTES_CCA_DEC];
-        let mut message_dec = [b'C'; 32];
-
-        let (mut pk, mut sk) = indcpa_kem_keypair();
-        unsafe {
-            ffi::indcpa_kem_enc(
-                message_received.as_mut_ptr(),
-                noiseseed.as_mut_ptr(),
-                &pk as *const PublicKey,
-                ciphertext.as_mut_ptr(),
-            );
-            ffi::indcpa_kem_dec(
-                &sk as *const SecretKey,
-                ciphertext.as_ptr(),
-                message_dec.as_mut_ptr(),
-            );
-        }
-        assert_eq!(&message_dec[..], &message_received[..]);
-    }
-
-    #[test]
     fn polyveccompressedbytes_value() {
-        assert_eq!(POLYVECCOMPRESSEDBYTES + SEEDBYTES, PUBLICKEYBYTES);
+        assert_eq!(POLYVECCOMPRESSEDBYTES + SEEDBYTES, INDCPA_PUBLICKEYBYTES);
     }
 
     #[test]

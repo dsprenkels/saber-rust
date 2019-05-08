@@ -3,14 +3,8 @@
 extern crate rand;
 extern crate sha3;
 
-mod params;
-mod poly;
-mod saber;
+pub mod kem;
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}
+mod params;
+mod pke;
+mod poly;
