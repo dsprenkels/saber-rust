@@ -11,11 +11,12 @@ use crate::poly::Poly;
 pub const K: usize = 3;
 
 pub const MU: usize = 8;
-pub const DELTA: usize = 3;
+/// Is called DELTA in the reference implemention
+pub const RECON_SIZE: usize = 3;
 pub const POLYVECCOMPRESSEDBYTES: usize = K * (N * 10) / 8;
 pub const CIPHERTEXTBYTES: usize = POLYVECCOMPRESSEDBYTES;
-pub const RECONBYTES: usize = DELTA * N / 8;
-pub const RECONBYTES_KEM: usize = (DELTA + 1) * N / 8;
+pub const RECONBYTES: usize = RECON_SIZE * N / 8;
+pub const RECONBYTES_KEM: usize = (RECON_SIZE + 1) * N / 8;
 pub const INDCPA_PUBKEYBYTES: usize = 992;
 pub const INDCPA_SECRETKEYBYTES: usize = 1248;
 pub const PUBLICKEYBYTES: usize = 992;
@@ -310,10 +311,47 @@ fn load_littleendian(bytes: [u8; 4]) -> u64 {
 
 /// This function implements ReconDataGen, as described in Algorithm 19
 fn recon_data_gen(dest: &mut [u8], poly: &Poly) {
-    const C: u8 = 10 - (DELTA as u8) - 1;
     debug_assert_eq!(dest.len(), RECONBYTES_KEM);
-    debug_assert_eq!(C, 6);
+    const C: u8 = EPS_P - RECON_SIZE as u8 - 1;
     (poly.reduce(P) >> C).read_bytes_4bit(dest);
+}
+
+/// This function implement Recon, as described in Algorithm 20
+fn recon(rec: &[u8], poly: &Poly) -> Poly {
+    debug_assert_eq!(rec.len(), RECONBYTES_KEM);
+    const C0: u8 = EPS_P - RECON_SIZE as u8 - 1;
+    const C1: u16 = (1 << (EPS_P - 2)) - (1 << (EPS_P - 2 - RECON_SIZE as u8));
+
+    let rec_poly = Poly::from_bytes_4bit(rec);
+    let mut k_poly = Poly::default();
+    let input_iter = rec_poly.coeffs.iter().zip(poly.coeffs.iter());
+    for ((recbit, coeff), k) in input_iter.zip(k_poly.coeffs.iter_mut()) {
+        let temp = recbit << C0;
+        let temp = coeff.wrapping_sub(temp).wrapping_add(C1);
+        //                   temp
+        // K_i = floor( --------------- )
+        //              2^[log2(p) - 1]
+        //
+        // Observe that 2^[log2(p) - 1] is just (P/2), so K_i = 2*temp/P.
+        // I.e. we calculate that by computing K_i ← temp >> (𝜖_p - 1).
+        // *k |= (((temp >> (EPS_P - 1)) & 0x1) as u8) << idx;
+        *k |= ((temp >> (EPS_P - 1)) & 0x1);
+    }
+    k_poly
+}
+
+fn floor_special(a: u16) -> u16 {
+    let sign = (a >> 15) & 0x1;
+    let signmask = sign.wrapping_neg();
+    let abs = (a.wrapping_neg() & signmask) + (a & !signmask); // Absolute value of a
+    let b = abs;
+    let temp = abs & 0x1FF; // Least 9 bits of a
+    let temp = temp.wrapping_neg();
+    // ^ If temp was 0, then result is 0; otherwise -ve. so the sign bit tells it.
+    let sign2 = (temp >> 15) & 0x1;
+    let abs = abs + (sign & sign2);
+    let b = (signmask & (abs.wrapping_neg())) + (b & !signmask);
+    (b >> 9) & 0x1
 }
 
 /// Returns a tuple (public_key, secret_key), of PublicKey, SecretKey objects
@@ -423,8 +461,21 @@ pub fn indcpa_kem_dec(full_sk: &SecretKey, ciphertext: &[u8; BYTES_CCA_DEC]) -> 
             &mut message_dec_unpacked as *mut Poly,
         );
     }
+
     // m = POL2MSG(m')
     message_dec_unpacked.read_bytes_msg(&mut message_dec);
+
+    println!("C > message_dec_unpacked: {:X?}", message_dec_unpacked);
+    println!("C > message_dec: {:X?}", message_dec);
+
+    // m' = Recon(rec, v')
+    message_dec_unpacked = recon(&rec, &v1);
+
+    // m = POL2MSG(m')
+    message_dec_unpacked.read_bytes_msg(&mut message_dec);
+
+    println!("Rust > message_dec_unpacked: {:X?}", message_dec_unpacked);
+    println!("Rust > message_dec: {:X?}", message_dec);
 
     message_dec
 }

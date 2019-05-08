@@ -1,5 +1,5 @@
 use crate::params::*;
-use core::ops::{Add, Mul, Shl, Shr};
+use core::ops::{Add, Mul, Shl, Shr, Sub};
 
 /// Poly is equivalent to the reference implementation's `poly` type
 #[repr(C)]
@@ -37,6 +37,30 @@ impl Add<u16> for Poly {
     fn add(mut self, rhs: u16) -> Poly {
         for coeff in self.coeffs.iter_mut() {
             *coeff = coeff.wrapping_add(rhs);
+        }
+        self
+    }
+}
+
+impl Sub for Poly {
+    type Output = Self;
+
+    #[inline]
+    fn sub(mut self, rhs: Self) -> Poly {
+        for (coeff, other) in self.coeffs.iter_mut().zip(rhs.coeffs.iter()) {
+            *coeff = coeff.wrapping_sub(*other);
+        }
+        self
+    }
+}
+
+impl Sub<u16> for Poly {
+    type Output = Self;
+
+    #[inline]
+    fn sub(mut self, rhs: u16) -> Poly {
+        for coeff in self.coeffs.iter_mut() {
+            *coeff = coeff.wrapping_sub(rhs);
         }
         self
     }
@@ -173,10 +197,19 @@ impl Poly {
         poly
     }
 
+    pub fn from_bytes_4bit(bytes: &[u8]) -> Self {
+        debug_assert_eq!(bytes.len(), 4 * 256 / 8);
+        let mut poly = Poly::default();
+        for (b, cs) in bytes.iter().zip(poly.coeffs.chunks_exact_mut(2)) {
+            cs[0] = u16::from(b & 0xF);
+            cs[1] = u16::from(b >> 4);
+        }
+        poly
+    }
+
     /// This function implements MSG2POLp, as described in Algorithm 15
     pub fn from_msg(msg: &[u8]) -> Self {
         debug_assert_eq!(msg.len(), MESSAGEBYTES);
-        const MSG2POL_CONST: u8 = LOG_Q - 1;
         let mut m_poly = Poly::default();
         for (b, coeffs_chunk) in msg.iter().zip(m_poly.coeffs.chunks_exact_mut(8)) {
             for (idx, coeff) in coeffs_chunk.iter_mut().enumerate() {
