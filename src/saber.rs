@@ -340,20 +340,6 @@ fn recon(rec: &[u8], poly: &Poly) -> Poly {
     k_poly
 }
 
-fn floor_special(a: u16) -> u16 {
-    let sign = (a >> 15) & 0x1;
-    let signmask = sign.wrapping_neg();
-    let abs = (a.wrapping_neg() & signmask) + (a & !signmask); // Absolute value of a
-    let b = abs;
-    let temp = abs & 0x1FF; // Least 9 bits of a
-    let temp = temp.wrapping_neg();
-    // ^ If temp was 0, then result is 0; otherwise -ve. so the sign bit tells it.
-    let sign2 = (temp >> 15) & 0x1;
-    let abs = abs + (sign & sign2);
-    let b = (signmask & (abs.wrapping_neg())) + (b & !signmask);
-    (b >> 9) & 0x1
-}
-
 /// Returns a tuple (public_key, secret_key), of PublicKey, SecretKey objects
 // C type in reference: void indcpa_kem_keypair(unsigned char *pk, unsigned char *sk);
 pub fn indcpa_kem_keypair() -> (PublicKey, SecretKey) {
