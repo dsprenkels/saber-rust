@@ -168,14 +168,15 @@ impl Poly {
             cs[0] = u16::from(bs[0]) & 0xFF | (u16::from(bs[1] & 0x03) << 8);
             cs[1] = ((u16::from(bs[1]) >> 2) & 0x3F) | (u16::from(bs[2] & 0x0F) << 6);
             cs[2] = ((u16::from(bs[2]) >> 4) & 0x0F) | (u16::from(bs[3] & 0x3F) << 4);
-            cs[3] = ((u16::from(bs[3]) >> 6) & 0x03) | (u16::from(bs[4] & 0xFF) << 2);
+            cs[3] = ((u16::from(bs[3]) >> 6) & 0x03) | (u16::from(bs[4]) << 2);
         }
         poly
     }
 
     /// This function implements MSG2POLp, as described in Algorithm 15
     pub fn from_msg(msg: &[u8]) -> Self {
-        pub const MSG2POL_CONST: u8 = 9;
+        debug_assert_eq!(msg.len(), MESSAGEBYTES);
+        const MSG2POL_CONST: u8 = LOG_Q - 1;
         let mut m_poly = Poly::default();
         for (b, coeffs_chunk) in msg.iter().zip(m_poly.coeffs.chunks_exact_mut(8)) {
             for (idx, coeff) in coeffs_chunk.iter_mut().enumerate() {
@@ -213,6 +214,18 @@ impl Poly {
 
         for (cs, b) in self.coeffs.chunks_exact(2).zip(bytes.iter_mut()) {
             *b = (cs[0] & 0x0F) as u8 | ((cs[1] & 0x0F) << 4) as u8;
+        }
+    }
+
+    /// This function implements POL2MSG, which it seems they forgot to include in the submission
+    /// document
+    pub fn read_bytes_msg(self, msg: &mut [u8]) {
+        debug_assert_eq!(msg.len(), MESSAGEBYTES);
+        for (coeffs_chunk, b) in self.coeffs.chunks_exact(8).zip(msg.iter_mut()) {
+            *b = 0;
+            for (idx, coeff) in coeffs_chunk.iter().enumerate() {
+                *b |= (*coeff as u8) << idx;
+            }
         }
     }
 }

@@ -14,7 +14,6 @@ pub const MU: usize = 8;
 pub const DELTA: usize = 3;
 pub const POLYVECCOMPRESSEDBYTES: usize = K * (N * 10) / 8;
 pub const CIPHERTEXTBYTES: usize = POLYVECCOMPRESSEDBYTES;
-pub const MESSAGEBYTES: usize = 32;
 pub const RECONBYTES: usize = DELTA * N / 8;
 pub const RECONBYTES_KEM: usize = (DELTA + 1) * N / 8;
 pub const INDCPA_PUBKEYBYTES: usize = 992;
@@ -151,7 +150,7 @@ impl Vector {
     pub fn from_bytes_mod_q(bs: &[u8]) -> Self {
         debug_assert_eq!(bs.len(), K * 13 * 256 / 8);
         let mut vec = Vector::default();
-        for (bs_chunk, poly) in bs.chunks_exact(13 * 256 /8).zip(vec.polys.iter_mut()) {
+        for (bs_chunk, poly) in bs.chunks_exact(13 * 256 / 8).zip(vec.polys.iter_mut()) {
             *poly = Poly::from_bytes_13bit(bs_chunk);
         }
         vec
@@ -410,26 +409,23 @@ pub fn indcpa_kem_dec(full_sk: &SecretKey, ciphertext: &[u8; BYTES_CCA_DEC]) -> 
     // s = BS2POLVECq(SecretKey_cpa)
     let sk_vec = Vector::from_bytes_mod_q(sk);
 
+    // b = BS2BOLVECp(ct)
+    let b_vec = Vector::from_bytes_mod_p(ct);
+
+    // v' = VectorMul(b, s, p)
+    let mut v1 = b_vec * sk_vec;
+
     unsafe {
-        // b = BS2BOLVECp(ct)
-        ffi::BS2POLVECp(ct.as_ptr(), &mut b_vec as *mut Vector);
-
-        // v' = VectorMul(b, s, p)
-        let mut v1 = b_vec * sk_vec;
-
         // m' = Recon(rec, v')
         ffi::Recon(
             &mut v1 as *mut Poly,
             rec.as_mut_ptr(),
             &mut message_dec_unpacked as *mut Poly,
         );
-
-        // m = POL2MSG(m')
-        ffi::POL2MSG(
-            &mut message_dec_unpacked as *mut Poly,
-            message_dec.as_mut_ptr(),
-        );
     }
+    // m = POL2MSG(m')
+    message_dec_unpacked.read_bytes_msg(&mut message_dec);
+
     message_dec
 }
 
