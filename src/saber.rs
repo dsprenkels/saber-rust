@@ -17,7 +17,7 @@ pub const POLYVECCOMPRESSEDBYTES: usize = K * (N * 10) / 8;
 pub const CIPHERTEXTBYTES: usize = POLYVECCOMPRESSEDBYTES;
 pub const RECONBYTES: usize = RECON_SIZE * N / 8;
 pub const RECONBYTES_KEM: usize = (RECON_SIZE + 1) * N / 8;
-pub const INDCPA_PUBKEYBYTES: usize = 992;
+pub const INDCPA_PUBLICKEYBYTES: usize = 992;
 pub const INDCPA_SECRETKEYBYTES: usize = 1248;
 pub const PUBLICKEYBYTES: usize = 992;
 pub const SECRETKEYBYTES: usize = 2304;
@@ -148,30 +148,38 @@ impl Default for Vector {
 
 impl Vector {
     /// This function implements BS2POLVECq, as described in Algorithm 9
-    pub fn from_bytes_mod_q(bs: &[u8]) -> Self {
-        debug_assert_eq!(bs.len(), K * 13 * 256 / 8);
+    pub fn from_bytes_mod_q(bytes: &[u8]) -> Self {
+        debug_assert_eq!(bytes.len(), K * 13 * 256 / 8);
         let mut vec = Vector::default();
-        for (bs_chunk, poly) in bs.chunks_exact(13 * 256 / 8).zip(vec.polys.iter_mut()) {
-            *poly = Poly::from_bytes_13bit(bs_chunk);
+        for (chunk, poly) in bytes.chunks_exact(13 * 256 / 8).zip(vec.polys.iter_mut()) {
+            *poly = Poly::from_bytes_13bit(chunk);
         }
         vec
     }
 
     /// This function implements BS2POLVECp, as described in Algorithm 13
-    pub fn from_bytes_mod_p(bs: &[u8]) -> Self {
-        debug_assert_eq!(bs.len(), K * 10 * 256 / 8);
+    pub fn from_bytes_mod_p(bytes: &[u8]) -> Self {
+        debug_assert_eq!(bytes.len(), K * 10 * 256 / 8);
         let mut vec = Vector::default();
-        for (bs_chunk, poly) in bs.chunks_exact(10 * 256 / 8).zip(vec.polys.iter_mut()) {
-            *poly = Poly::from_bytes_10bit(bs_chunk);
+        for (chunk, poly) in bytes.chunks_exact(10 * 256 / 8).zip(vec.polys.iter_mut()) {
+            *poly = Poly::from_bytes_10bit(chunk);
         }
         vec
     }
 
+    /// This function implements POLVECq2BS, as described in Algorithm 10
+    pub fn read_mod_q(&self, bytes: &mut [u8]) {
+        debug_assert_eq!(bytes.len(), K * 13 * 256 / 8);
+        for (poly, chunk) in self.polys.iter().zip(bytes.chunks_exact_mut(13 * 256 / 8)) {
+            poly.read_bytes_13bit(chunk);
+        }
+    }
+
     /// This function implements POLVECp2BS, as described in Algorithm 14
-    pub fn read_mod_p(&self, bs: &mut [u8]) {
-        debug_assert_eq!(bs.len(), K * 10 * 256 / 8);
-        for (poly, bs_chunk) in self.polys.iter().zip(bs.chunks_exact_mut(10 * 256 / 8)) {
-            poly.read_bytes_10bit(bs_chunk);
+    pub fn read_mod_p(&self, bytes: &mut [u8]) {
+        debug_assert_eq!(bytes.len(), K * 10 * 256 / 8);
+        for (poly, chunk) in self.polys.iter().zip(bytes.chunks_exact_mut(10 * 256 / 8)) {
+            poly.read_bytes_10bit(chunk);
         }
     }
 }
@@ -241,10 +249,10 @@ impl Shr<u8> for Matrix {
 }
 
 #[repr(C)]
-pub struct PublicKey([u8; PUBLICKEYBYTES]);
+pub struct PublicKey([u8; INDCPA_PUBLICKEYBYTES]);
 
 #[repr(C)]
-pub struct SecretKey([u8; SECRETKEYBYTES]);
+pub struct SecretKey([u8; INDCPA_SECRETKEYBYTES]);
 
 fn gen_matrix(seed: &[u8]) -> Matrix {
     debug_assert_eq!(seed.len(), SEEDBYTES);
@@ -343,30 +351,29 @@ fn recon(rec: &[u8], poly: &Poly) -> Poly {
 /// Returns a tuple (public_key, secret_key), of PublicKey, SecretKey objects
 // C type in reference: void indcpa_kem_keypair(unsigned char *pk, unsigned char *sk);
 pub fn indcpa_kem_keypair() -> (PublicKey, SecretKey) {
-    let mut a = Matrix::default();
-    let mut sk_vec = Vector::default();
-    let mut pk_vec;
-    let mut sk = SecretKey([0; SECRETKEYBYTES]);
-    let mut pk = PublicKey([0; PUBLICKEYBYTES]);
     let mut seed: [u8; SEEDBYTES] = rand::random();
     let mut noiseseed: [u8; COINBYTES] = rand::random();
 
-    unsafe {
-        ffi::GenMatrix(&mut a as *mut Matrix, seed.as_ptr());
-        ffi::GenSecret(&mut sk_vec as *mut Vector, noiseseed.as_ptr());
+    let a = gen_matrix(&seed);
+    let mut sk_vec = gen_secret(&noiseseed);
 
-        // Compute b (called `res` in reference implementation)
-        pk_vec = a.mul(sk_vec);
+    // Compute b (called `res` in reference implementation)
+    let pk_vec = a.mul(sk_vec);
 
-        // Rounding of b
-        pk_vec = (pk_vec + 4) >> 3;
+    // Rounding of b
+    let pk_vec = (pk_vec + 4) >> 3;
 
-        // Save the secret and public vectors
-        ffi::POLVECq2BS(sk.0.as_mut_ptr(), &mut sk_vec as *mut Vector);
-        ffi::POLVECp2BS(pk.0.as_mut_ptr(), &mut pk_vec as *mut Vector);
-        (&mut pk.0[POLYVECCOMPRESSEDBYTES..]).copy_from_slice(&seed[..]);
-    }
-    (pk, sk)
+    // Save the secret key
+    let mut sk = SecretKey([0; INDCPA_SECRETKEYBYTES]);
+    sk_vec.read_mod_q(&mut sk.0);
+
+    // Save the public key
+    let mut full_pk = PublicKey([0; INDCPA_PUBLICKEYBYTES]);
+    let (pk, pk_seed) = full_pk.0.split_at_mut(POLYVECCOMPRESSEDBYTES);
+    pk_vec.read_mod_p(pk);
+    pk_seed.copy_from_slice(&seed[..]);
+
+    (full_pk, sk)
 }
 
 // C type in reference: void indcpa_kem_enc(unsigned char *message_received, unsigned char *noiseseed, const unsigned char *pk, unsigned char *ciphertext)
@@ -462,8 +469,8 @@ mod tests {
 
     #[test]
     fn indcpa_reference() {
-        let mut pk = PublicKey([0; PUBLICKEYBYTES]);
-        let mut sk = SecretKey([0; SECRETKEYBYTES]);
+        let mut pk = PublicKey([0; INDCPA_PUBLICKEYBYTES]);
+        let mut sk = SecretKey([0; INDCPA_SECRETKEYBYTES]);
 
         for _ in 0..100 {
             let mut noiseseed = rand::random::<[u8; NOISE_SEEDBYTES]>();

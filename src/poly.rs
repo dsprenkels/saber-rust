@@ -220,9 +220,23 @@ impl Poly {
     }
 
     /// This function implements POLq2BS, as described in Algorithm 8
-    pub fn read_bytes_13bit(self, bs: &[u8]) {
-        debug_assert_eq!(bs.len(), 416);
-        unimplemented!()
+    pub fn read_bytes_13bit(self, bytes: &mut [u8]) {
+        debug_assert_eq!(bytes.len(), 416);
+        for (cs, bs) in self.coeffs.chunks_exact(8).zip(bytes.chunks_exact_mut(13)) {
+            bs[0] = (cs[0] & 0xFF) as u8;
+            bs[1] = ((cs[0] >> 8) & 0x1F) as u8 | ((cs[1] & 0x07) as u8) << 5;
+            bs[2] = ((cs[1] >> 3) & 0xFF) as u8;
+            bs[3] = ((cs[1] >> 11) & 0x03) as u8 | ((cs[2] & 0x3F) as u8) << 2;
+            bs[4] = ((cs[2] >> 6) & 0x7F) as u8 | ((cs[3] & 0x01) as u8) << 7;
+            bs[5] = ((cs[3] >> 1) & 0xFF) as u8;
+            bs[6] = ((cs[3] >> 9) & 0x0F) as u8 | ((cs[4] & 0x0F) as u8) << 4;
+            bs[7] = ((cs[4] >> 4) & 0xFF) as u8;
+            bs[8] = ((cs[4] >> 12) & 0x01) as u8 | ((cs[5] & 0x7F) as u8) << 1;
+            bs[9] = ((cs[5] >> 7) & 0x3F) as u8 | ((cs[6] & 0x03) as u8) << 6;
+            bs[10] = ((cs[6] >> 2) & 0xFF) as u8;
+            bs[11] = ((cs[6] >> 10) & 0x07) as u8 | ((cs[7] & 0x1F) as u8) << 3;
+            bs[12] = ((cs[7] >> 5) & 0xFF) as u8;
+        }
     }
 
     /// This function implements POLp2BS, as described in Algorithm 12
