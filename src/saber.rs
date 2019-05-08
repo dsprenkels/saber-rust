@@ -418,10 +418,6 @@ pub fn indcpa_kem_enc(
 
 // C type in reference: void indcpa_kem_dec(const unsigned char *sk, const unsigned char *ciphertext, unsigned char message_dec[])
 pub fn indcpa_kem_dec(full_sk: &SecretKey, ciphertext: &[u8; BYTES_CCA_DEC]) -> [u8; MESSAGEBYTES] {
-    let mut b_vec = Vector::default();
-    let mut message_dec_unpacked = Poly::default();
-    let mut message_dec = [0; MESSAGEBYTES];
-
     // Extract (rec || ct) = CipherText
     let (ct, _) = ciphertext.split_at(POLYVECCOMPRESSEDBYTES);
     let mut rec = [0; RECONBYTES_KEM];
@@ -440,9 +436,10 @@ pub fn indcpa_kem_dec(full_sk: &SecretKey, ciphertext: &[u8; BYTES_CCA_DEC]) -> 
     let mut v1 = b_vec * sk_vec;
 
     // m' = Recon(rec, v')
-    message_dec_unpacked = recon(&rec, &v1);
+    let message_dec_unpacked = recon(&rec, &v1);
 
     // m = POL2MSG(m')
+    let mut message_dec = [0; MESSAGEBYTES];
     message_dec_unpacked.read_bytes_msg(&mut message_dec);
     message_dec
 }
