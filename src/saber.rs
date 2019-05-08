@@ -22,7 +22,6 @@ pub const INDCPA_SECRETKEYBYTES: usize = 1248;
 pub const PUBLICKEYBYTES: usize = 992;
 pub const SECRETKEYBYTES: usize = 2304;
 pub const BYTES_CCA_DEC: usize = 1088;
-pub const MSG2POL_CONST: u8 = 9;
 
 mod ffi {
     use super::*;
@@ -373,15 +372,7 @@ pub fn indcpa_kem_enc(
     let pol_p = v1_vec * sk_vec;
 
     // m_p = MSG2POL(m)
-    // TODO(dsprenkels) Implement this routine as a function on `Poly`
-    let mut m_p = Poly::default();
-    let m_p_chunks_iter = m_p.coeffs.chunks_exact_mut(8);
-    for (idx, (b, coeffs_chunk)) in message_received.iter().zip(m_p_chunks_iter).enumerate() {
-        for (idx2, coeff) in coeffs_chunk.iter_mut().enumerate() {
-            *coeff = u16::from((b >> idx2) & 0x01);
-        }
-    }
-    m_p = m_p << MSG2POL_CONST;
+    let mut m_p = Poly::from_msg(message_received);
 
     // m_p = m_p + pol_p mod p
     m_p = m_p + pol_p;

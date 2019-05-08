@@ -170,6 +170,18 @@ impl Poly {
         poly
     }
 
+    /// This function implements MSG2POLp, as described in Algorithm 15
+    pub fn from_msg(msg: &[u8]) -> Self {
+        pub const MSG2POL_CONST: u8 = 9;
+        let mut m_poly = Poly::default();
+        for (b, coeffs_chunk) in msg.iter().zip(m_poly.coeffs.chunks_exact_mut(8)) {
+            for (idx, coeff) in coeffs_chunk.iter_mut().enumerate() {
+                *coeff = u16::from((b >> idx) & 0x01) << MSG2POL_CONST;
+            }
+        }
+        m_poly
+    }
+
     /// This function implements POLq2BS, as described in Algorithm 8
     pub fn read_bytes_13bit(self, bs: &[u8]) {
         debug_assert_eq!(bs.len(), 416);
