@@ -1,6 +1,7 @@
 use crate::params::*;
 use crate::poly::Poly;
 use crate::traits::{self, INDCPAPublicKey as INDCPAPublicKeyTrait, Vector as VectorTrait, SaberImpl};
+use crate::SharedSecret;
 
 use core::ops::{Add, Mul, Shr};
 use sha3::digest::{ExtendableOutput, Input, XofReader};
@@ -10,16 +11,17 @@ struct Saber;
 /// Also known as `l`
 const K: usize = 3;
 
-const MU: usize = 8;
 /// Is called DELTA in the reference implemention
 const RECON_SIZE: usize = 3;
 const POLYVECCOMPRESSEDBYTES: usize = K * (N * 10) / 8;
-const CIPHERTEXTBYTES: usize = POLYVECCOMPRESSEDBYTES;
-const RECONBYTES: usize = RECON_SIZE * N / 8;
 const RECONBYTES_KEM: usize = (RECON_SIZE + 1) * N / 8;
 const BYTES_CCA_DEC: usize = 1088;
 const INDCPA_PUBLICKEYBYTES: usize = 992;
 const INDCPA_SECRETKEYBYTES: usize = 1248;
+
+// KEM parameters
+pub const PUBLIC_KEY_BYTES: usize = 992;
+pub const SECRET_KEY_BYTES: usize = 2304;
 
 impl traits::SaberImpl for Saber {
     // KEM parameters
@@ -171,7 +173,7 @@ impl<'a> From<&'a SecretKey> for &'a PublicKey where {
     }
 }
 
-byte_array_newtype!(PublicKeyBytes, PUBLIC_KEY_BYTES, [u8; PUBLIC_KEY_BYTES]);
+__byte_array_newtype!(PublicKeyBytes, PUBLIC_KEY_BYTES, [u8; PUBLIC_KEY_BYTES]);
 
 #[derive(Clone)]
 pub struct SecretKey {
@@ -214,7 +216,7 @@ impl traits::SecretKey<Saber> for SecretKey {
     }
 }
 
-byte_array_newtype!(SecretKeyBytes, SECRET_KEY_BYTES, [u8; SECRET_KEY_BYTES]);
+__byte_array_newtype!(SecretKeyBytes, SECRET_KEY_BYTES, [u8; SECRET_KEY_BYTES]);
 
 #[derive(Clone)]
 struct INDCPAPublicKey {
@@ -236,7 +238,7 @@ impl traits::INDCPAPublicKey<Saber> for INDCPAPublicKey {
     }
 }
 
-byte_array_newtype!(
+__byte_array_newtype!(
     INDCPAPublicKeyBytes,
     INDCPA_PUBLICKEYBYTES,
     [u8; INDCPA_PUBLICKEYBYTES]
@@ -270,7 +272,7 @@ impl INDCPASecretKey {
     }
 }
 
-byte_array_newtype!(
+__byte_array_newtype!(
     INDCPASecretKeyBytes,
     INDCPA_SECRETKEYBYTES,
     [u8; INDCPA_SECRETKEYBYTES]
@@ -445,7 +447,7 @@ impl traits::Vector<Saber> for Vector {
     }
 }
 
-byte_array_newtype!(Ciphertext, BYTES_CCA_DEC, [u8; BYTES_CCA_DEC]);
+__byte_array_newtype!(pub(crate) Ciphertext, BYTES_CCA_DEC, [u8; BYTES_CCA_DEC]);
 
 // IMPLEMENTATION
 
@@ -544,20 +546,25 @@ fn recon(rec: &[u8], poly: &Poly) -> Poly {
     k_poly
 }
 
+pub(crate) fn encapsulate(pk_cca: PublicKey) -> (SharedSecret, Ciphertext) {
+    traits::encapsulate::<Saber>(&pk_cca)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use traits::{decapsulate, encapsulate, keygen};
 
-    use crate::common::SharedSecret;
+    use crate::SharedSecret;
 
     #[test]
     fn test_kem() {
         let sk: SecretKey = keygen::<Saber>();
         let pk: &PublicKey = &sk.pk_cca;
-        let (s1, ct): (SharedSecret, Ciphertext) = encapsulate::<Saber>(pk);
-        let s2 = decapsulate::<Saber>(&ct, &sk);
-        assert_eq!(&s1.sessionkey_cca, &s2.sessionkey_cca);
+        let (s1_newtype, ct): (SharedSecret, Ciphertext) = encapsulate::<Saber>(pk);
+        let s1:[u8; KEYBYTES] = s1_newtype.into();
+        let s2: [u8; KEYBYTES] = decapsulate::<Saber>(&ct, &sk).into();
+        assert_eq!(s1, s2);
     }
 
     #[test]
@@ -576,10 +583,4 @@ mod tests {
     fn polyveccompressedbytes_value() {
         assert_eq!(POLYVECCOMPRESSEDBYTES + SEEDBYTES, INDCPA_PUBLICKEYBYTES);
     }
-
-    #[test]
-    fn bytes_cca_dec_value() {
-        assert_eq!(CIPHERTEXTBYTES + RECONBYTES_KEM, BYTES_CCA_DEC);
-    }
-
 }

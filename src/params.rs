@@ -7,7 +7,7 @@ implemented in the language. Therefore, we will have to reimplement all the
 functions that rely on different functions multiple times.
 */
 
-// Unisversal constants
+// Universal constants
 pub const N: usize = 256;
 pub const Q: u16 = 8192;
 pub const P: u16 = 1024;
@@ -22,10 +22,6 @@ pub const KEYBYTES: usize = 32;
 pub const MESSAGEBYTES: usize = 32;
 pub const NOISE_SEEDBYTES: usize = 32;
 pub const SEEDBYTES: usize = 32;
-
-// KEM parameters
-pub const PUBLIC_KEY_BYTES: usize = 992;
-pub const SECRET_KEY_BYTES: usize = 2304;
 
 // Constants added in this implementation
 pub const MSG2POL_CONST: u8 = 9;

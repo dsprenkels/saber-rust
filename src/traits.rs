@@ -1,7 +1,7 @@
 use rand::random;
 use sha3::{Digest, Sha3_256, Sha3_512};
 
-use crate::common::*;
+use crate::*;
 use crate::Error as SaberError;
 
 pub trait Vector<I: SaberImpl> {
@@ -156,7 +156,7 @@ pub fn encapsulate<I: SaberImpl>(pk_cca: &I::PublicKey) -> (SharedSecret, I::Cip
     r.copy_from_slice(Sha3_256::digest(ciphertext_cca.as_ref()).as_slice());
     let mut sessionkey_cca = [0; KEYBYTES];
     (&mut sessionkey_cca).copy_from_slice(Sha3_256::digest(kr).as_slice());
-    (SharedSecret { sessionkey_cca }, ciphertext_cca)
+    (SharedSecret::from(sessionkey_cca), ciphertext_cca)
 }
 
 /// This function implements Saber.KEM.Decaps, as described in Algorithm 28
@@ -186,7 +186,7 @@ pub fn decapsulate<I: SaberImpl>(ct: &I::Ciphertext, sk: &I::SecretKey) -> Share
 
     let mut sessionkey_cca = [0; KEYBYTES];
     sessionkey_cca.copy_from_slice(hasher.result().as_slice());
-    SharedSecret { sessionkey_cca }
+    SharedSecret::from(sessionkey_cca)
 }
 
 /// This function implements Verify, with some tweaks.
