@@ -4,8 +4,8 @@ use core::ops::{Add, Mul, Shl, Shr, Sub};
 /// Poly is equivalent to the reference implementation's `poly` type
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct Poly {
-    pub coeffs: [u16; N],
+pub(crate) struct Poly {
+    pub(crate) coeffs: [u16; N],
 }
 
 impl std::fmt::Debug for Poly {
@@ -150,7 +150,7 @@ impl Default for Poly {
 
 impl Poly {
     #[inline]
-    pub fn reduce(mut self, m: u16) -> Self {
+    pub(crate) fn reduce(mut self, m: u16) -> Self {
         debug_assert!(
             m.is_power_of_two(),
             "m must be a power of two, not 0x{:02x}",
@@ -163,7 +163,7 @@ impl Poly {
     }
 
     /// This function implements BS2POLq, as described in Algorithm 7
-    pub fn from_bytes_13bit(bytes: &[u8]) -> Self {
+    pub(crate) fn from_bytes_13bit(bytes: &[u8]) -> Self {
         debug_assert_eq!(bytes.len(), 13 * 256 / 8);
         let mut poly = Poly::default();
         for (bs, cs) in bytes.chunks_exact(13).zip(poly.coeffs.chunks_exact_mut(8)) {
@@ -185,7 +185,7 @@ impl Poly {
     }
 
     /// This function implements BS2POLp, as described in Algorithm 11
-    pub fn from_bytes_10bit(bytes: &[u8]) -> Self {
+    pub(crate) fn from_bytes_10bit(bytes: &[u8]) -> Self {
         debug_assert_eq!(bytes.len(), 10 * 256 / 8);
         let mut poly = Poly::default();
         for (bs, cs) in bytes.chunks_exact(5).zip(poly.coeffs.chunks_exact_mut(4)) {
@@ -197,7 +197,7 @@ impl Poly {
         poly
     }
 
-    pub fn from_bytes_4bit(bytes: &[u8]) -> Self {
+    pub(crate) fn from_bytes_4bit(bytes: &[u8]) -> Self {
         debug_assert_eq!(bytes.len(), 4 * 256 / 8);
         let mut poly = Poly::default();
         for (b, cs) in bytes.iter().zip(poly.coeffs.chunks_exact_mut(2)) {
@@ -208,7 +208,7 @@ impl Poly {
     }
 
     /// This function implements MSG2POLp, as described in Algorithm 15
-    pub fn from_msg(msg: &[u8]) -> Self {
+    pub(crate) fn from_msg(msg: &[u8]) -> Self {
         debug_assert_eq!(msg.len(), MESSAGEBYTES);
         let mut m_poly = Poly::default();
         for (b, coeffs_chunk) in msg.iter().zip(m_poly.coeffs.chunks_exact_mut(8)) {
@@ -220,7 +220,7 @@ impl Poly {
     }
 
     /// This function implements POLq2BS, as described in Algorithm 8
-    pub fn read_bytes_13bit(self, bytes: &mut [u8]) {
+    pub(crate) fn read_bytes_13bit(self, bytes: &mut [u8]) {
         debug_assert_eq!(bytes.len(), 416);
         for (cs, bs) in self.coeffs.chunks_exact(8).zip(bytes.chunks_exact_mut(13)) {
             bs[0] = (cs[0] & 0xFF) as u8;
@@ -240,7 +240,7 @@ impl Poly {
     }
 
     /// This function implements POLp2BS, as described in Algorithm 12
-    pub fn read_bytes_10bit(self, bytes: &mut [u8]) {
+    pub(crate) fn read_bytes_10bit(self, bytes: &mut [u8]) {
         debug_assert_eq!(bytes.len(), 10 * 256 / 8);
         for (cs, bs) in self.coeffs.chunks_exact(4).zip(bytes.chunks_exact_mut(5)) {
             bs[0] = (cs[0] & 0xFF) as u8;
@@ -252,7 +252,7 @@ impl Poly {
     }
 
     /// This function mirrors the refererence implementation's `SABER_pack_4bit` function
-    pub fn read_bytes_4bit(self, bytes: &mut [u8]) {
+    pub(crate) fn read_bytes_4bit(self, bytes: &mut [u8]) {
         debug_assert_eq!(bytes.len(), 4 * 256 / 8);
 
         for b in bytes.iter_mut() {
@@ -266,7 +266,7 @@ impl Poly {
 
     /// This function implements POL2MSG, which it seems they forgot to include in the submission
     /// document
-    pub fn read_bytes_msg(self, msg: &mut [u8]) {
+    pub(crate) fn read_bytes_msg(self, msg: &mut [u8]) {
         debug_assert_eq!(msg.len(), MESSAGEBYTES);
         for (coeffs_chunk, b) in self.coeffs.chunks_exact(8).zip(msg.iter_mut()) {
             *b = 0;
@@ -287,6 +287,7 @@ mod tests {
 
     #[test]
     fn poly_mul_random() {
+        const Q: u16 = 8192;
         for (i, test) in POLY_MUL_RANDOM_TESTS.iter().enumerate() {
             let (a, b, expected) = test;
             let c = (*a * *b).reduce(Q);

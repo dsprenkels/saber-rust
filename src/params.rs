@@ -9,10 +9,8 @@ functions that rely on different functions multiple times.
 
 // Universal constants
 pub const N: usize = 256;
-pub const Q: u16 = 8192;
 pub const P: u16 = 1024;
 
-pub const EPS_Q: u8 = 13;
 pub const EPS_P: u8 = 10;
 
 // Buffer lengths

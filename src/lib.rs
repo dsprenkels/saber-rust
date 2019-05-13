@@ -6,11 +6,12 @@ extern crate sha3;
 #[macro_use]
 mod macros;
 
+mod generic;
 mod params;
 mod poly;
 pub mod saber;
-mod traits;
 
+#[derive(Clone, Debug)]
 pub enum Error {
     BadLengthError {
         name: &'static str,
@@ -28,5 +29,3 @@ pub const NOISE_SEEDBYTES: usize = 32;
 pub const SEEDBYTES: usize = 32;
 pub const CIPHERTEXT_BYTES: usize = 32;
 
-__byte_array_newtype!(pub SharedSecret, KEYBYTES, [u8; KEYBYTES]);
-__byte_array_newtype!(pub Ciphertext, CIPHERTEXT_BYTES, [u8; CIPHERTEXT_BYTES]);

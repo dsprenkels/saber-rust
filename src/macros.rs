@@ -1,18 +1,25 @@
 #[doc(hidden)]
 macro_rules! __byte_array_newtype {
-    ($name:ident, $length:expr, $type:ty) => {
+    ($name:ident, $length:path, $type:ty) => {
         #[derive(Clone)]
         struct $name($type);
 
         __byte_array_newtype_impl!($name, $length, $type);
     };
-    (pub $name:ident, $length:expr, $type:ty) => {
+    (pub $name:ident, $length:path, $type:ty) => {
         #[derive(Clone)]
         pub struct $name($type);
 
         __byte_array_newtype_impl!($name, $length, $type);
     };
-    (pub(crate) $name:ident, $length:expr, $type:ty) => {
+    ($doc:meta, pub $name:ident, $length:path, $type:ty) => {
+        #[derive(Clone)]
+        #[$doc]
+        pub struct $name($type);
+
+        __byte_array_newtype_impl!($name, $length, $type);
+    };
+    (pub(crate) $name:ident, $length:path, $type:ty) => {
         #[derive(Clone)]
         pub(crate) struct $name($type);
 
@@ -20,12 +27,10 @@ macro_rules! __byte_array_newtype {
     };
 }
 
-
 #[doc(hidden)]
 macro_rules! __byte_array_newtype_impl {
     ($name:ident, $length:expr, $type:ty) => {
         impl $name {
-
             #[allow(unused)]
             pub fn to_bytes(self) -> $type {
                 self.into()
@@ -42,7 +47,12 @@ macro_rules! __byte_array_newtype_impl {
             }
 
             #[allow(unused)]
-            fn from_bytes(bytes: &[u8]) -> Result<$name, crate::Error> {
+            pub fn as_mut_slice(&mut self) -> &mut [u8] {
+                self.as_mut()
+            }
+
+            #[allow(unused)]
+            pub fn from_bytes(bytes: &[u8]) -> Result<$name, crate::Error> {
                 if bytes.len() != $length {
                     let err = crate::Error::BadLengthError {
                         name: stringify!($name),
@@ -85,6 +95,13 @@ macro_rules! __byte_array_newtype_impl {
             }
         }
 
+        impl AsMut<$type> for $name {
+            #[allow(unused)]
+            fn as_mut(&mut self) -> &mut $type {
+                &mut self.0
+            }
+        }
+
         impl AsRef<[u8]> for $name {
             #[allow(unused)]
             fn as_ref(&self) -> &[u8] {
@@ -92,7 +109,11 @@ macro_rules! __byte_array_newtype_impl {
             }
         }
 
+        impl AsMut<[u8]> for $name {
+            #[allow(unused)]
+            fn as_mut(&mut self) -> &mut [u8] {
+                &mut self.0
+            }
+        }
     };
 }
-
-
