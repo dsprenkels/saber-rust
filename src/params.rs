@@ -23,6 +23,10 @@ pub const MESSAGEBYTES: usize = 32;
 pub const NOISE_SEEDBYTES: usize = 32;
 pub const SEEDBYTES: usize = 32;
 
+// KEM parameters
+pub const PUBLIC_KEY_BYTES: usize = 992;
+pub const SECRET_KEY_BYTES: usize = 2304;
+
 // Constants added in this implementation
 pub const MSG2POL_CONST: u8 = 9;
 
