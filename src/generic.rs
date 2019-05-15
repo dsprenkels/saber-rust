@@ -63,7 +63,6 @@ pub(crate) trait Vector<I: SaberImpl>: Clone + Default + Sized {
     }
 
     #[must_use]
-    #[inline]
     fn add_vec(mut self, rhs: &Self) -> Self {
         let polys = self.polys_mut();
         for (coeff, other) in polys.iter_mut().zip(rhs.polys().iter()) {
@@ -73,7 +72,6 @@ pub(crate) trait Vector<I: SaberImpl>: Clone + Default + Sized {
     }
 
     #[must_use]
-    #[inline]
     fn add_u16(mut self, rhs: u16) -> Self {
         let polys = self.polys_mut();
         for poly in polys.iter_mut() {
@@ -83,7 +81,6 @@ pub(crate) trait Vector<I: SaberImpl>: Clone + Default + Sized {
     }
 
     #[must_use]
-    #[inline]
     fn shr(mut self, rhs: u8) -> Self {
         for poly in self.polys_mut().iter_mut() {
             *poly = *poly >> rhs;
@@ -93,7 +90,6 @@ pub(crate) trait Vector<I: SaberImpl>: Clone + Default + Sized {
 
     /// As implemented by Algorithm 17
     #[must_use]
-    #[inline]
     fn mul(mut self, rhs: &Self) -> Poly {
         let polys = self.polys_mut();
         let mut acc = Poly::default();
@@ -113,7 +109,6 @@ where
 
     /// As implemented by Algorithm 16
     #[must_use]
-    #[inline]
     fn mul(self, rhs: &V) -> V {
         let mut result = V::default();
         let vecs = self.vecs();
@@ -125,9 +120,7 @@ where
 
     /// As implemented by Algorithm 16
     #[must_use]
-    #[inline]
     fn mul_transpose(self, rhs: &V) -> V {
-        // TODO(dsprenkels) Use iterators instead of vecs.len() if possible
         let mut result = V::default();
         let vecs = self.vecs();
         for i in 0..vecs.len() {
@@ -165,8 +158,10 @@ pub(crate) trait INDCPAPublicKey<I: SaberImpl>: Sized {
 }
 
 pub(crate) trait INDCPASecretKey<I: SaberImpl>: Sized {
+    #[must_use]
     fn new(vec: I::Vector) -> Self;
 
+    #[must_use]
     fn vec(&self) -> I::Vector;
 
     fn to_bytes(&self) -> I::INDCPASecretKeyBytes {
@@ -190,10 +185,13 @@ pub(crate) trait INDCPASecretKey<I: SaberImpl>: Sized {
 }
 
 pub(crate) trait PublicKey<I: SaberImpl>: Sized {
+    #[must_use]
     fn new(pk_cpa: I::INDCPAPublicKey) -> Self;
 
+    #[must_use]
     fn pk_cpa(&self) -> &I::INDCPAPublicKey;
 
+    #[must_use]
     fn to_bytes(&self) -> I::PublicKeyBytes;
 
     fn from_newtype(newtype: &I::PublicKeyBytes) -> Self {
@@ -215,6 +213,7 @@ pub(crate) trait PublicKey<I: SaberImpl>: Sized {
 }
 
 pub(crate) trait SecretKey<I: SaberImpl>: Clone + Sized {
+    #[must_use]
     fn new(
         z: [u8; KEYBYTES],
         hash_pk: [u8; HASHBYTES],
@@ -222,9 +221,13 @@ pub(crate) trait SecretKey<I: SaberImpl>: Clone + Sized {
         sk_cpa: I::INDCPASecretKey,
     ) -> Self;
 
+    #[must_use]
     fn z(&self) -> &[u8; KEYBYTES];
+    #[must_use]
     fn hash_pk(&self) -> &[u8; HASHBYTES];
+    #[must_use]
     fn pk_cca(&self) -> &I::PublicKey;
+    #[must_use]
     fn sk_cpa(&self) -> &I::INDCPASecretKey;
 
     fn unpack(
@@ -325,7 +328,7 @@ pub(crate) trait SaberImpl: Sized {
     fn cbd<T: XofReader>(xof: &mut T) -> Poly;
 }
 
-pub(crate) fn gen_secret<I: SaberImpl>(seed: &[u8]) -> I::Vector {
+fn gen_secret<I: SaberImpl>(seed: &[u8]) -> I::Vector {
     debug_assert_eq!(seed.len(), NOISE_SEEDBYTES);
     let mut hasher = sha3::Shake128::default();
     hasher.input(seed);
@@ -346,7 +349,7 @@ pub(crate) fn load_littleendian(bytes: &[u8]) -> u64 {
     r
 }
 
-pub(crate) fn gen_matrix<I: SaberImpl>(seed: &[u8]) -> I::Matrix {
+fn gen_matrix<I: SaberImpl>(seed: &[u8]) -> I::Matrix {
     use sha3::digest::Input;
     debug_assert_eq!(seed.len(), SEEDBYTES);
 
@@ -401,7 +404,13 @@ fn recon<I: SaberImpl>(rec: &[u8], poly: &Poly) -> Poly {
 pub(crate) fn indcpa_kem_keypair<I: SaberImpl>() -> (I::INDCPAPublicKey, I::INDCPASecretKey) {
     let seed: [u8; SEEDBYTES] = rand::random();
     let noiseseed: [u8; COINBYTES] = rand::random();
+    indcpa_key_keypair_deterministic::<I>(seed, noiseseed)
+}
 
+pub(crate) fn indcpa_key_keypair_deterministic<I: SaberImpl>(
+    seed: [u8; SEEDBYTES],
+    noiseseed: [u8; COINBYTES],
+) -> (I::INDCPAPublicKey, I::INDCPASecretKey) {
     let a = generic::gen_matrix::<I>(&seed);
     let sk_vec = gen_secret::<I>(&noiseseed);
 
@@ -505,8 +514,7 @@ pub(crate) fn keygen<I: SaberImpl>() -> I::SecretKey {
     let hash_digest = Sha3_256::digest(pk_cpa_bytes.as_ref());
     hash_pk.copy_from_slice(hash_digest.as_slice());
     let z: [u8; KEYBYTES] = random();
-    let sk_cca = I::SecretKey::new(z, hash_pk, I::PublicKey::new(pk_cpa), sk_cpa);
-    sk_cca
+    I::SecretKey::new(z, hash_pk, I::PublicKey::new(pk_cpa), sk_cpa)
 }
 
 /// This function implements Saber.KEM.Encaps, as described in Algorithm 27
@@ -528,6 +536,8 @@ pub(crate) fn encapsulate<I: SaberImpl>(pk_cca: &I::PublicKey) -> (SharedSecret,
 
 /// This function implements Saber.KEM.Decaps, as described in Algorithm 28
 pub(crate) fn decapsulate<I: SaberImpl>(ct: &I::Ciphertext, sk: &I::SecretKey) -> SharedSecret {
+    #![allow(clippy::many_single_char_names)]
+
     let (z, hash_pk, pk_cca, sk_cpa) = sk.unpack();
     let pk_cpa = pk_cca.pk_cpa();
 

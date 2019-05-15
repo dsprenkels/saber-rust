@@ -21,7 +21,6 @@ impl std::fmt::Debug for Poly {
 impl Add for Poly {
     type Output = Self;
 
-    #[inline]
     fn add(mut self, rhs: Self) -> Poly {
         for (coeff, other) in self.coeffs.iter_mut().zip(rhs.coeffs.iter()) {
             *coeff = coeff.wrapping_add(*other);
@@ -33,7 +32,6 @@ impl Add for Poly {
 impl Add<u16> for Poly {
     type Output = Self;
 
-    #[inline]
     fn add(mut self, rhs: u16) -> Poly {
         for coeff in self.coeffs.iter_mut() {
             *coeff = coeff.wrapping_add(rhs);
@@ -45,7 +43,6 @@ impl Add<u16> for Poly {
 impl Sub for Poly {
     type Output = Self;
 
-    #[inline]
     fn sub(mut self, rhs: Self) -> Poly {
         for (coeff, other) in self.coeffs.iter_mut().zip(rhs.coeffs.iter()) {
             *coeff = coeff.wrapping_sub(*other);
@@ -57,7 +54,6 @@ impl Sub for Poly {
 impl Sub<u16> for Poly {
     type Output = Self;
 
-    #[inline]
     fn sub(mut self, rhs: u16) -> Poly {
         for coeff in self.coeffs.iter_mut() {
             *coeff = coeff.wrapping_sub(rhs);
@@ -69,7 +65,6 @@ impl Sub<u16> for Poly {
 impl Mul for Poly {
     type Output = Self;
 
-    #[inline]
     fn mul(self, rhs: Self) -> Poly {
         let Poly { coeffs: a } = self;
         let Poly { coeffs: b } = rhs;
@@ -92,7 +87,6 @@ impl Mul for Poly {
 impl Shl<u8> for Poly {
     type Output = Self;
 
-    #[inline]
     fn shl(mut self, rhs: u8) -> Self {
         for coeff in self.coeffs.iter_mut() {
             *coeff <<= rhs;
@@ -104,7 +98,6 @@ impl Shl<u8> for Poly {
 impl Shr<u8> for Poly {
     type Output = Self;
 
-    #[inline]
     fn shr(mut self, rhs: u8) -> Self {
         for coeff in self.coeffs.iter_mut() {
             *coeff >>= rhs;
@@ -142,14 +135,12 @@ impl<'a> Into<[u8; 13 * 256 / 8]> for &'a Poly {
 }
 
 impl Default for Poly {
-    #[inline]
     fn default() -> Self {
         Poly { coeffs: [0; N] }
     }
 }
 
 impl Poly {
-    #[inline]
     pub(crate) fn reduce(mut self, m: u16) -> Self {
         debug_assert!(
             m.is_power_of_two(),

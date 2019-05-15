@@ -1,18 +1,21 @@
 #[doc(hidden)]
 macro_rules! __byte_array_newtype {
     ($name:ident, $length:path, $type:ty) => {
+        #[repr(C)]
         #[derive(Clone)]
         struct $name($type);
 
         __byte_array_newtype_impl!($name, $length, $type);
     };
     (pub $name:ident, $length:path, $type:ty) => {
+        #[repr(C)]
         #[derive(Clone)]
         pub struct $name($type);
 
         __byte_array_newtype_impl!($name, $length, $type);
     };
     ($doc:meta, pub $name:ident, $length:path, $type:ty) => {
+        #[repr(C)]
         #[derive(Clone)]
         #[$doc]
         pub struct $name($type);
@@ -20,6 +23,7 @@ macro_rules! __byte_array_newtype {
         __byte_array_newtype_impl!($name, $length, $type);
     };
     (pub(crate) $name:ident, $length:path, $type:ty) => {
+        #[repr(C)]
         #[derive(Clone)]
         pub(crate) struct $name($type);
 
@@ -32,7 +36,7 @@ macro_rules! __byte_array_newtype_impl {
     ($name:ident, $length:expr, $type:ty) => {
         impl $name {
             #[allow(unused)]
-            pub fn to_bytes(self) -> $type {
+            pub fn into_bytes(self) -> $type {
                 self.into()
             }
 

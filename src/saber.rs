@@ -72,3 +72,89 @@ impl generic::SaberImpl for Saber {
 
 __generate_non_generic_impl!(Saber);
 __generate_non_generic_tests!(Saber);
+
+#[cfg(test)]
+#[cfg(feature = "reftest")]
+mod tests {
+    use super::*;
+
+    mod ffi {
+        #![allow(dead_code)]
+
+        use super::*;
+
+        extern "C" {
+            pub(super) fn indcpa_kem_keypair(
+                pk: *mut INDCPAPublicKeyBytes,
+                sk: *mut INDCPASecretKeyBytes,
+            );
+            pub(super) fn indcpa_kem_enc(
+                message_received: *mut u8,
+                noiseseed: *mut u8,
+                pk: *const INDCPAPublicKeyBytes,
+                ciphertext: *mut u8,
+            );
+            pub(super) fn indcpa_kem_dec(
+                sk: *const INDCPASecretKeyBytes,
+                ciphertext: *const u8,
+                message_dec: *mut u8,
+            );
+        }
+    }
+
+    #[test]
+    fn test_indcpa_kem_enc() {
+        use crate::generic::indcpa_kem_enc;
+
+        for _ in 0..100 {
+            let sk = keygen();
+            let pk = sk.public_key();
+            let indcpa_pk = &pk.pk_cpa;
+            let indcpa_pk_bytes = indcpa_pk.to_bytes();
+            let mut message_received: [u8; KEYBYTES] = rand::random();
+            let mut noiseseed: [u8; NOISE_SEEDBYTES] = rand::random();
+
+            let ciphertext = indcpa_kem_enc::<Saber>(&message_received, &noiseseed, indcpa_pk);
+            let mut ciphertext2 = [0; BYTES_CCA_DEC];
+
+            unsafe {
+                ffi::indcpa_kem_enc(
+                    message_received.as_mut_ptr(),
+                    noiseseed.as_mut_ptr(),
+                    &indcpa_pk_bytes as *const INDCPAPublicKeyBytes,
+                    ciphertext2.as_mut_ptr(),
+                );
+            }
+            assert_eq!(ciphertext.as_slice(), &ciphertext2[..]);
+        }
+    }
+
+    #[test]
+    fn test_indcpa_kem_dec() {
+        use crate::generic::{indcpa_kem_dec, indcpa_kem_enc, INDCPASecretKey};
+
+        for _ in 0..100 {
+            let sk = keygen();
+            let indcpa_sk = &sk.sk_cpa;
+            let indcpa_sk_bytes = indcpa_sk.to_bytes();
+            let pk = sk.public_key();
+            let indcpa_pk = &pk.pk_cpa;
+            let message_received: [u8; KEYBYTES] = rand::random();
+            let noiseseed: [u8; NOISE_SEEDBYTES] = rand::random();
+
+            let ciphertext = indcpa_kem_enc::<Saber>(&message_received, &noiseseed, indcpa_pk);
+            let mut message_dec2: [u8; KEYBYTES] = [0; KEYBYTES];
+            let message_dec = indcpa_kem_dec::<Saber>(indcpa_sk, &ciphertext);
+
+            unsafe {
+                ffi::indcpa_kem_dec(
+                    &indcpa_sk_bytes as *const INDCPASecretKeyBytes,
+                    ciphertext.0.as_ptr(),
+                    message_dec2.as_mut_ptr(),
+                );
+            }
+            assert_eq!(&message_dec[..], &message_dec2[..]);
+        }
+    }
+
+}

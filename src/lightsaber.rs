@@ -47,7 +47,7 @@ impl generic::SaberImpl for LightSaber {
             let t = generic::load_littleendian(&buf);
             let mut d = 0;
             for idx in 0..buf.len() {
-                d += (t >> idx) & 0x0842108421;
+                d += (t >> idx) & 0x0008_4210_8421;
             }
 
             let mut a = [0; 4];

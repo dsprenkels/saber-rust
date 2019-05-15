@@ -13,10 +13,10 @@ const SABER_SRCS: [&str; 9] = [
 ];
 
 fn main() {
-    // if std::env::var("DEBUG").map(|s| s.to_lowercase()) == Ok("true".into()) {
-    // Build saber reference implementation only when testing
-    // }
-    cc::Build::new().files(&SABER_SRCS).compile("saber");
-    println!("# The native saber sources need libcrypto");
-    println!("cargo:rustc-link-lib=dylib=crypto");
+    if std::env::var("CARGO_FEATURE_REFTEST") == Ok("1".to_string()) {
+        // Build saber reference implementation only when testing
+        cc::Build::new().files(&SABER_SRCS).compile("saber");
+        println!("# The native saber sources need libcrypto");
+        println!("cargo:rustc-link-lib=dylib=crypto");
+    }
 }
