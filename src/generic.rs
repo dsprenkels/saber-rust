@@ -1,8 +1,8 @@
-use crate::poly::Poly;
 use rand::random;
-use sha3::digest::{ExtendableOutput, XofReader};
+use sha3::digest::{Input, ExtendableOutput, XofReader};
 use sha3::{Digest, Sha3_256, Sha3_512};
 
+use crate::poly::Poly;
 use crate::params::*;
 use crate::*;
 
@@ -319,7 +319,31 @@ pub(crate) trait SaberImpl: Sized {
 
     type Ciphertext: AsRef<[u8]> + AsMut<[u8]> + Default;
 
-    fn gen_secret(seed: &[u8]) -> Self::Vector;
+
+    fn recon_poly_read_bytes_xbit(poly: Poly, buf: &mut [u8]);
+    fn recon_poly_from_bytes_xbit(buf: &[u8]) -> Poly;
+    fn cbd<T: XofReader>(xof: &mut T) -> Poly;
+}
+
+pub(crate) fn gen_secret<I: SaberImpl>(seed: &[u8]) -> I::Vector {
+    debug_assert_eq!(seed.len(), NOISE_SEEDBYTES);
+    let mut hasher = sha3::Shake128::default();
+    hasher.input(seed);
+    let mut xof = hasher.xof_result();
+
+    let mut secret = I::Vector::default();
+    for poly in secret.polys_mut().iter_mut() {
+        *poly = I::cbd(&mut xof);
+    }
+    secret
+}
+
+pub(crate) fn load_littleendian(bytes: &[u8]) -> u64 {
+    let mut r = 0;
+    for (idx, b) in bytes.iter().enumerate() {
+        r |= u64::from(*b) << (8 * idx);
+    }
+    r
 }
 
 pub(crate) fn gen_matrix<I: SaberImpl>(seed: &[u8]) -> I::Matrix {
@@ -342,19 +366,19 @@ pub(crate) fn gen_matrix<I: SaberImpl>(seed: &[u8]) -> I::Matrix {
 }
 
 /// This function implements ReconDataGen, as described in Algorithm 19
-pub(crate) fn recon_data_gen<I: SaberImpl>(dest: &mut [u8], poly: &Poly) {
+fn recon_data_gen<I: SaberImpl>(dest: &mut [u8], poly: &Poly) {
     debug_assert_eq!(dest.len(), I::RECONBYTES_KEM);
     let c = EPS_P - (I::RECON_SIZE as u8) - 1;
-    (poly.reduce(P) >> c).read_bytes_4bit(dest);
+    I::recon_poly_read_bytes_xbit(poly.reduce(P) >> c, dest);
 }
 
 /// This function implement Recon, as described in Algorithm 20
-pub(crate) fn recon<I: SaberImpl>(rec: &[u8], poly: &Poly) -> Poly {
+fn recon<I: SaberImpl>(rec: &[u8], poly: &Poly) -> Poly {
     debug_assert_eq!(rec.len(), I::RECONBYTES_KEM);
     let c0: u8 = EPS_P - I::RECON_SIZE as u8 - 1;
     let c1: u16 = (1 << (EPS_P - 2)) - (1 << (EPS_P - 2 - I::RECON_SIZE as u8));
 
-    let rec_poly = Poly::from_bytes_4bit(rec);
+    let rec_poly = I::recon_poly_from_bytes_xbit(rec);
     let mut k_poly = Poly::default();
     let input_iter = rec_poly.coeffs.iter().zip(poly.coeffs.iter());
     for ((recbit, coeff), k) in input_iter.zip(k_poly.coeffs.iter_mut()) {
@@ -379,7 +403,7 @@ pub(crate) fn indcpa_kem_keypair<I: SaberImpl>() -> (I::INDCPAPublicKey, I::INDC
     let noiseseed: [u8; COINBYTES] = rand::random();
 
     let a = generic::gen_matrix::<I>(&seed);
-    let sk_vec = I::gen_secret(&noiseseed);
+    let sk_vec = gen_secret::<I>(&noiseseed);
 
     // Compute b (called `res` in reference implementation)
     let pk_vec = a.mul(&sk_vec);
@@ -411,7 +435,7 @@ pub(crate) fn indcpa_kem_enc<I: SaberImpl>(
     let a = generic::gen_matrix::<I>(pk.seed());
 
     // s' = GenSecret(seed_s')
-    let sk_vec = I::gen_secret(&noiseseed);
+    let sk_vec = gen_secret::<I>(&noiseseed);
 
     // Compute b' (called `res` in reference implementation)
     let pk_vec = a.mul_transpose(&sk_vec);
@@ -490,8 +514,8 @@ pub(crate) fn encapsulate<I: SaberImpl>(pk_cca: &I::PublicKey) -> (SharedSecret,
     let m: [u8; KEYBYTES] = random();
     let hash_pk = Sha3_256::digest(&pk_cca.to_bytes().as_ref());
     let mut hasher = Sha3_512::default();
-    hasher.input(hash_pk);
-    hasher.input(m);
+    sha3::digest::Input::input(&mut hasher, hash_pk);
+    sha3::digest::Input::input(&mut hasher, m);
     let mut kr_digest = hasher.result();
     let kr = kr_digest.as_mut_slice();
     let r = &mut kr[0..KEYBYTES];
@@ -509,8 +533,8 @@ pub(crate) fn decapsulate<I: SaberImpl>(ct: &I::Ciphertext, sk: &I::SecretKey) -
 
     let m = indcpa_kem_dec::<I>(&sk_cpa, &ct);
     let mut hasher = Sha3_512::default();
-    hasher.input(hash_pk);
-    hasher.input(m);
+    sha3::digest::Input::input(&mut hasher, hash_pk);
+    sha3::digest::Input::input(&mut hasher, m);
     let mut kr_digest = hasher.result();
     let kr = kr_digest.as_mut_slice();
     let (r, k) = kr.split_at_mut(KEYBYTES);
@@ -523,9 +547,9 @@ pub(crate) fn decapsulate<I: SaberImpl>(ct: &I::Ciphertext, sk: &I::SecretKey) -
     for (rb, zb) in r.iter().zip(z.iter()) {
         let mask = (fail as u8).wrapping_neg();
         let b = (rb & !mask) | (zb & mask);
-        hasher.input([b]);
+        sha3::digest::Input::input(&mut hasher, [b]);
     }
-    hasher.input(k);
+    sha3::digest::Input::input(&mut hasher, k);
 
     let mut sessionkey_cca = [0; KEYBYTES];
     sessionkey_cca.copy_from_slice(hasher.result().as_slice());

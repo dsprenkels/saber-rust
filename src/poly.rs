@@ -207,6 +207,22 @@ impl Poly {
         poly
     }
 
+    pub(crate) fn from_bytes_3bit(bytes: &[u8]) -> Self {
+        debug_assert_eq!(bytes.len(), 3 * 256 / 8);
+        let mut poly = Poly::default();
+        for (bs, cs) in bytes.chunks_exact(3).zip(poly.coeffs.chunks_exact_mut(8)) {
+            cs[0] = u16::from(bs[0] & 0x07);
+            cs[1] = u16::from((bs[0] >> 3) & 0x07);
+            cs[2] = u16::from((bs[0] >> 6) & 0x03) | u16::from((bs[1] & 0x01) << 2);
+            cs[3] = u16::from((bs[1] >> 1) & 0x07);
+            cs[4] = u16::from((bs[1] >> 4) & 0x07);
+            cs[5] = u16::from((bs[1] >> 7) & 0x01) | u16::from((bs[2] & 0x03) << 1);
+            cs[6] = u16::from((bs[2] >> 2) & 0x07);
+            cs[7] = u16::from((bs[2] >> 5) & 0x07);
+        }
+        poly
+    }
+
     /// This function implements MSG2POLp, as described in Algorithm 15
     pub(crate) fn from_msg(msg: &[u8]) -> Self {
         debug_assert_eq!(msg.len(), MESSAGEBYTES);
@@ -254,13 +270,18 @@ impl Poly {
     /// This function mirrors the refererence implementation's `SABER_pack_4bit` function
     pub(crate) fn read_bytes_4bit(self, bytes: &mut [u8]) {
         debug_assert_eq!(bytes.len(), 4 * 256 / 8);
-
-        for b in bytes.iter_mut() {
-            *b = 0;
-        }
-
         for (cs, b) in self.coeffs.chunks_exact(2).zip(bytes.iter_mut()) {
             *b = (cs[0] & 0x0F) as u8 | ((cs[1] & 0x0F) << 4) as u8;
+        }
+    }
+
+    /// This function mirrors the refererence implementation's `SABER_pack_3bit` function
+    pub(crate) fn read_bytes_3bit(self, bytes: &mut [u8]) {
+        debug_assert_eq!(bytes.len(), 3 * 256 / 8);
+        for (cs, bs) in self.coeffs.chunks_exact(8).zip(bytes.chunks_exact_mut(3)) {
+            bs[0] = (cs[0] & 0x07) as u8 | ((cs[1] & 0x07) << 3) as u8 | ((cs[2] & 0x03) << 6) as u8;
+            bs[1] = ((cs[2] >> 2) & 0x01) as u8 | ((cs[3] & 0x07) << 1) as u8 | ((cs[4] & 0x07) << 4) as u8 | (((cs[5] >> 2) & 0x01) << 7) as u8;
+            bs[2] = ((cs[5] >> 1) & 0x03) as u8 | ((cs[6] & 0x07) << 2) as u8 | ((cs[7] & 0x07) << 5) as u8;
         }
     }
 

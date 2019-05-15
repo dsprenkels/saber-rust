@@ -6,11 +6,11 @@ use crate::poly::Poly;
 
 pub use crate::generic::SharedSecret;
 
-struct Saber;
+struct LightSaber;
 
-__generate_params!(3, 8, 3);
+__generate_params!(2, 10, 2);
 
-impl generic::SaberImpl for Saber {
+impl generic::SaberImpl for LightSaber {
     __params_impl!();
 
     type Vector = Vector;
@@ -31,35 +31,35 @@ impl generic::SaberImpl for Saber {
     type Ciphertext = Ciphertext;
 
     fn recon_poly_read_bytes_xbit(poly: Poly, buf: &mut [u8]) {
-        poly.read_bytes_4bit(buf)
+        poly.read_bytes_3bit(buf)
     }
 
     fn recon_poly_from_bytes_xbit(buf: &[u8]) -> Poly {
-        Poly::from_bytes_4bit(buf)
+        Poly::from_bytes_3bit(buf)
     }
 
     fn cbd<T: XofReader>(xof: &mut T) -> Poly {
         let mut poly = Poly::default();
         for cs in poly.coeffs.chunks_exact_mut(4) {
-            let mut buf = [0; 4];
+            let mut buf = [0; 5];
             xof.read(&mut buf);
 
             let t = generic::load_littleendian(&buf);
             let mut d = 0;
             for idx in 0..buf.len() {
-                d += (t >> idx) & 0x1111_1111;
+                d += (t >> idx) & 0x0842108421;
             }
 
             let mut a = [0; 4];
             let mut b = [0; 4];
-            a[0] = (d & 0xF) as u16;
-            b[0] = ((d >> 4) & 0xF) as u16;
-            a[1] = ((d >> 8) & 0xF) as u16;
-            b[1] = ((d >> 12) & 0xF) as u16;
-            a[2] = ((d >> 16) & 0xF) as u16;
-            b[2] = ((d >> 20) & 0xF) as u16;
-            a[3] = ((d >> 24) & 0xF) as u16;
-            b[3] = (d >> 28) as u16;
+            a[0] = ( d & 0x1F) as u16;
+            b[0] = ((d >>  5) & 0x1F) as u16;
+            a[1] = ((d >> 10) & 0x1F) as u16;
+            b[1] = ((d >> 15) & 0x1F) as u16;
+            a[2] = ((d >> 20) & 0x1F) as u16;
+            b[2] = ((d >> 25) & 0x1F) as u16;
+            a[3] = ((d >> 30) & 0x1F) as u16;
+            b[3] = (d >> 35) as u16;
 
             cs[0] = (a[0]).wrapping_sub(b[0]);
             cs[1] = (a[1]).wrapping_sub(b[1]);
@@ -68,9 +68,7 @@ impl generic::SaberImpl for Saber {
         }
         poly
     }
-
-
 }
 
-__generate_non_generic_impl!(Saber);
-__generate_non_generic_tests!(Saber);
+__generate_non_generic_impl!(LightSaber);
+__generate_non_generic_tests!(LightSaber);
