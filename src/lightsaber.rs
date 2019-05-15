@@ -52,8 +52,8 @@ impl generic::SaberImpl for LightSaber {
 
             let mut a = [0; 4];
             let mut b = [0; 4];
-            a[0] = ( d & 0x1F) as u16;
-            b[0] = ((d >>  5) & 0x1F) as u16;
+            a[0] = (d & 0x1F) as u16;
+            b[0] = ((d >> 5) & 0x1F) as u16;
             a[1] = ((d >> 10) & 0x1F) as u16;
             b[1] = ((d >> 15) & 0x1F) as u16;
             a[2] = ((d >> 20) & 0x1F) as u16;

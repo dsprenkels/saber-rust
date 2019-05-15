@@ -245,7 +245,8 @@ macro_rules! __generate_non_generic_tests {
                 for _ in 0..100 {
                     let noiseseed = rand::random::<[u8; NOISE_SEEDBYTES]>();
                     let message_received = rand::random::<[u8; 32]>();
-                    let ciphertext = generic::indcpa_kem_enc::<$struct>(&message_received, &noiseseed, &pk);
+                    let ciphertext =
+                        generic::indcpa_kem_enc::<$struct>(&message_received, &noiseseed, &pk);
                     let message_dec = generic::indcpa_kem_dec::<$struct>(&sk, &ciphertext);
                     assert_eq!(&message_dec[..], &message_received[..]);
                 }
@@ -261,6 +262,5 @@ macro_rules! __generate_non_generic_tests {
                 assert_eq!(1 << (MSG2POL_CONST + 1), P);
             }
         }
-
     };
 }

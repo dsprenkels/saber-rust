@@ -68,8 +68,6 @@ impl generic::SaberImpl for Saber {
         }
         poly
     }
-
-
 }
 
 __generate_non_generic_impl!(Saber);

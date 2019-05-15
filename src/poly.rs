@@ -197,6 +197,21 @@ impl Poly {
         poly
     }
 
+    /// This function mirrors the refererence implementation's `SABER_un_pack6bit` function
+    pub(crate) fn from_bytes_6bit(bytes: &[u8]) -> Self {
+        debug_assert_eq!(bytes.len(), 6 * 256 / 8);
+        let mut poly = Poly::default();
+
+        for (bs, cs) in bytes.chunks_exact(3).zip(poly.coeffs.chunks_exact_mut(4)) {
+            cs[0] = u16::from(bs[0] & 0x3F);
+            cs[1] = u16::from((bs[0] >> 6) & 0x03) | u16::from((bs[1] & 0x0F) << 2);
+            cs[2] = u16::from((bs[1] >> 4) & 0x0F) | u16::from((bs[2] & 0x03) << 4);
+            cs[3] = u16::from(bs[2] >> 2);
+        }
+        poly
+    }
+
+    /// This function mirrors the refererence implementation's `SABER_un_pack4bit` function
     pub(crate) fn from_bytes_4bit(bytes: &[u8]) -> Self {
         debug_assert_eq!(bytes.len(), 4 * 256 / 8);
         let mut poly = Poly::default();
@@ -207,6 +222,7 @@ impl Poly {
         poly
     }
 
+    /// This function mirrors the refererence implementation's `SABER_un_pack3bit` function
     pub(crate) fn from_bytes_3bit(bytes: &[u8]) -> Self {
         debug_assert_eq!(bytes.len(), 3 * 256 / 8);
         let mut poly = Poly::default();
@@ -267,6 +283,16 @@ impl Poly {
         }
     }
 
+    /// This function mirrors the refererence implementation's `SABER_pack_6bit` function
+    pub(crate) fn read_bytes_6bit(self, bytes: &mut [u8]) {
+        debug_assert_eq!(bytes.len(), 6 * 256 / 8);
+        for (cs, bs) in self.coeffs.chunks_exact(4).zip(bytes.chunks_exact_mut(3)) {
+            bs[0] = (cs[0] & 0x03F) as u8 | ((cs[1] & 0x03) << 6) as u8;
+            bs[1] = ((cs[1] >> 2) & 0x0F) as u8 | ((cs[2] & 0x0F) << 4) as u8;
+            bs[2] = ((cs[2] >> 4) & 0x03) as u8 | ((cs[3] & 0x3F) << 2) as u8;
+        }
+    }
+
     /// This function mirrors the refererence implementation's `SABER_pack_4bit` function
     pub(crate) fn read_bytes_4bit(self, bytes: &mut [u8]) {
         debug_assert_eq!(bytes.len(), 4 * 256 / 8);
@@ -279,9 +305,15 @@ impl Poly {
     pub(crate) fn read_bytes_3bit(self, bytes: &mut [u8]) {
         debug_assert_eq!(bytes.len(), 3 * 256 / 8);
         for (cs, bs) in self.coeffs.chunks_exact(8).zip(bytes.chunks_exact_mut(3)) {
-            bs[0] = (cs[0] & 0x07) as u8 | ((cs[1] & 0x07) << 3) as u8 | ((cs[2] & 0x03) << 6) as u8;
-            bs[1] = ((cs[2] >> 2) & 0x01) as u8 | ((cs[3] & 0x07) << 1) as u8 | ((cs[4] & 0x07) << 4) as u8 | (((cs[5] >> 2) & 0x01) << 7) as u8;
-            bs[2] = ((cs[5] >> 1) & 0x03) as u8 | ((cs[6] & 0x07) << 2) as u8 | ((cs[7] & 0x07) << 5) as u8;
+            bs[0] =
+                (cs[0] & 0x07) as u8 | ((cs[1] & 0x07) << 3) as u8 | ((cs[2] & 0x03) << 6) as u8;
+            bs[1] = ((cs[2] >> 2) & 0x01) as u8
+                | ((cs[3] & 0x07) << 1) as u8
+                | ((cs[4] & 0x07) << 4) as u8
+                | (((cs[5] >> 2) & 0x01) << 7) as u8;
+            bs[2] = ((cs[5] >> 1) & 0x03) as u8
+                | ((cs[6] & 0x07) << 2) as u8
+                | ((cs[7] & 0x07) << 5) as u8;
         }
     }
 

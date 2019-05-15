@@ -1,9 +1,9 @@
 use rand::random;
-use sha3::digest::{Input, ExtendableOutput, XofReader};
+use sha3::digest::{ExtendableOutput, Input, XofReader};
 use sha3::{Digest, Sha3_256, Sha3_512};
 
-use crate::poly::Poly;
 use crate::params::*;
+use crate::poly::Poly;
 use crate::*;
 
 pub(crate) trait Vector<I: SaberImpl>: Clone + Default + Sized {
@@ -124,6 +124,7 @@ where
     }
 
     /// As implemented by Algorithm 16
+    #[must_use]
     #[inline]
     fn mul_transpose(self, rhs: &V) -> V {
         // TODO(dsprenkels) Use iterators instead of vecs.len() if possible
@@ -318,7 +319,6 @@ pub(crate) trait SaberImpl: Sized {
     type INDCPASecretKeyBytes: AsRef<[u8]> + AsMut<[u8]> + Default;
 
     type Ciphertext: AsRef<[u8]> + AsMut<[u8]> + Default;
-
 
     fn recon_poly_read_bytes_xbit(poly: Poly, buf: &mut [u8]);
     fn recon_poly_from_bytes_xbit(buf: &[u8]) -> Poly;

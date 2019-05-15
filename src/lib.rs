@@ -16,9 +16,9 @@ mod generic;
 // pub mod lightsaber;
 mod poly;
 
+pub mod firesaber;
 pub mod lightsaber;
 pub mod saber;
-pub mod firesaber;
 
 #[derive(Clone, Debug)]
 pub enum Error {
