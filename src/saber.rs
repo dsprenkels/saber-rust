@@ -76,6 +76,7 @@ __generate_non_generic_tests!(Saber);
 #[cfg(test)]
 #[cfg(feature = "reftest")]
 mod tests {
+    use rand_os::rand_core::RngCore;
     use super::*;
 
     mod ffi {
@@ -111,8 +112,12 @@ mod tests {
             let pk = sk.public_key();
             let indcpa_pk = &pk.pk_cpa;
             let indcpa_pk_bytes = indcpa_pk.to_bytes();
-            let mut message_received: [u8; KEYBYTES] = rand::random();
-            let mut noiseseed: [u8; NOISE_SEEDBYTES] = rand::random();
+
+            let mut rng = rand_os::OsRng::new().unwrap();
+            let mut message_received = [0; KEYBYTES];
+            rng.fill_bytes(&mut message_received);
+            let mut noiseseed = [0; NOISE_SEEDBYTES];
+            rng.fill_bytes(&mut noiseseed);
 
             let ciphertext = indcpa_kem_enc::<Saber>(&message_received, &noiseseed, indcpa_pk);
             let mut ciphertext2 = [0; BYTES_CCA_DEC];
@@ -139,8 +144,12 @@ mod tests {
             let indcpa_sk_bytes = indcpa_sk.to_bytes();
             let pk = sk.public_key();
             let indcpa_pk = &pk.pk_cpa;
-            let message_received: [u8; KEYBYTES] = rand::random();
-            let noiseseed: [u8; NOISE_SEEDBYTES] = rand::random();
+
+            let mut rng = rand_os::OsRng::new().unwrap();
+            let mut message_received = [0; KEYBYTES];
+            rng.fill_bytes(&mut message_received);
+            let mut noiseseed = [0; NOISE_SEEDBYTES];
+            rng.fill_bytes(&mut noiseseed);
 
             let ciphertext = indcpa_kem_enc::<Saber>(&message_received, &noiseseed, indcpa_pk);
             let mut message_dec2: [u8; KEYBYTES] = [0; KEYBYTES];

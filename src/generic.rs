@@ -1,4 +1,4 @@
-use rand::random;
+use rand_os::rand_core::RngCore;
 use sha3::digest::{ExtendableOutput, Input, XofReader};
 use sha3::{Digest, Sha3_256, Sha3_512};
 
@@ -402,8 +402,11 @@ fn recon<I: SaberImpl>(rec: &[u8], poly: &Poly) -> Poly {
 /// Returns a tuple (public_key, secret_key), of PublicKey, SecretKey objects
 // C type in reference: void indcpa_kem_keypair(unsigned char *pk, unsigned char *sk);
 pub(crate) fn indcpa_kem_keypair<I: SaberImpl>() -> (I::INDCPAPublicKey, I::INDCPASecretKey) {
-    let seed: [u8; SEEDBYTES] = rand::random();
-    let noiseseed: [u8; COINBYTES] = rand::random();
+    let mut rng = rand_os::OsRng::new().unwrap();
+    let mut seed = [0; SEEDBYTES];
+    rng.fill_bytes(&mut seed);
+    let mut noiseseed = [0; COINBYTES];
+    rng.fill_bytes(&mut noiseseed);
     indcpa_key_keypair_deterministic::<I>(seed, noiseseed)
 }
 
@@ -513,13 +516,15 @@ pub(crate) fn keygen<I: SaberImpl>() -> I::SecretKey {
     let pk_cpa_bytes = pk_cpa.to_bytes();
     let hash_digest = Sha3_256::digest(pk_cpa_bytes.as_ref());
     hash_pk.copy_from_slice(hash_digest.as_slice());
-    let z: [u8; KEYBYTES] = random();
+    let mut z = [0; KEYBYTES];
+    rand_os::OsRng::new().unwrap().fill_bytes(&mut z);
     I::SecretKey::new(z, hash_pk, I::PublicKey::new(pk_cpa), sk_cpa)
 }
 
 /// This function implements Saber.KEM.Encaps, as described in Algorithm 27
 pub(crate) fn encapsulate<I: SaberImpl>(pk_cca: &I::PublicKey) -> (SharedSecret, I::Ciphertext) {
-    let m: [u8; KEYBYTES] = random();
+    let mut m = [0; KEYBYTES];
+    rand_os::OsRng::new().unwrap().fill_bytes(&mut m);
     let hash_pk = Sha3_256::digest(&pk_cca.to_bytes().as_ref());
     let mut hasher = Sha3_512::default();
     sha3::digest::Input::input(&mut hasher, hash_pk);

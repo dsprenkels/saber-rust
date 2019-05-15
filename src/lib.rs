@@ -1,6 +1,6 @@
 #![allow(clippy::suspicious_arithmetic_impl)]
 
-extern crate rand;
+extern crate rand_os;
 extern crate sha3;
 
 #[macro_use]
