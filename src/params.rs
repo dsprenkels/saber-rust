@@ -9,6 +9,7 @@ functions that rely on different functions multiple times.
 
 // Universal constants
 pub(crate) const N: usize = 256;
+pub(crate) const Q: u16 = 8192;
 pub(crate) const P: u16 = 1024;
 
 pub(crate) const EPS_P: u8 = 10;

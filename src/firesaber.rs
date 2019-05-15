@@ -1,3 +1,4 @@
+use secret_integers::*;
 use sha3::digest::XofReader;
 
 use crate::generic::{self, INDCPAPublicKey as INDCPAPublicKeyTrait};
@@ -45,26 +46,26 @@ impl generic::SaberImpl for FireSaber {
             xof.read(&mut buf);
 
             let t = generic::load_littleendian(&buf);
-            let mut d = 0;
+            let mut d = U64::from(0);
             for idx in 0..buf.len() {
-                d += (t >> idx) & 0x0024_9249;
+                d += (t >> idx as u32) & 0x0024_9249.into();
             }
 
-            let mut a = [0; 4];
-            let mut b = [0; 4];
-            a[0] = (d & 0x07) as u16;
-            b[0] = ((d >> 3) & 0x07) as u16;
-            a[1] = ((d >> 6) & 0x07) as u16;
-            b[1] = ((d >> 9) & 0x07) as u16;
-            a[2] = ((d >> 12) & 0x07) as u16;
-            b[2] = ((d >> 15) & 0x07) as u16;
-            a[3] = ((d >> 18) & 0x07) as u16;
-            b[3] = ((d >> 21) & 0x07) as u16;
+            let mut a = [U16::from(0); 4];
+            let mut b = [U16::from(0); 4];
+            a[0] = U16::from(d & 0x07.into());
+            b[0] = U16::from((d >> 3) & 0x07.into());
+            a[1] = U16::from((d >> 6) & 0x07.into());
+            b[1] = U16::from((d >> 9) & 0x07.into());
+            a[2] = U16::from((d >> 12) & 0x07.into());
+            b[2] = U16::from((d >> 15) & 0x07.into());
+            a[3] = U16::from((d >> 18) & 0x07.into());
+            b[3] = U16::from((d >> 21) & 0x07.into());
 
-            cs[0] = (a[0]).wrapping_sub(b[0]);
-            cs[1] = (a[1]).wrapping_sub(b[1]);
-            cs[2] = (a[2]).wrapping_sub(b[2]);
-            cs[3] = (a[3]).wrapping_sub(b[3]);
+            cs[0] = a[0] - b[0];
+            cs[1] = a[1] - b[1];
+            cs[2] = a[2] - b[2];
+            cs[3] = a[3] - b[3];
         }
         poly
     }

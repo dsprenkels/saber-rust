@@ -1,3 +1,4 @@
+use secret_integers::*;
 use sha3::digest::XofReader;
 
 use crate::generic::{self, INDCPAPublicKey as INDCPAPublicKeyTrait};
@@ -45,26 +46,26 @@ impl generic::SaberImpl for Saber {
             xof.read(&mut buf);
 
             let t = generic::load_littleendian(&buf);
-            let mut d = 0;
+            let mut d = U64::from(0);
             for idx in 0..buf.len() {
-                d += (t >> idx) & 0x1111_1111;
+                d += (t >> idx as u32) & 0x1111_1111.into();
             }
 
-            let mut a = [0; 4];
-            let mut b = [0; 4];
-            a[0] = (d & 0xF) as u16;
-            b[0] = ((d >> 4) & 0xF) as u16;
-            a[1] = ((d >> 8) & 0xF) as u16;
-            b[1] = ((d >> 12) & 0xF) as u16;
-            a[2] = ((d >> 16) & 0xF) as u16;
-            b[2] = ((d >> 20) & 0xF) as u16;
-            a[3] = ((d >> 24) & 0xF) as u16;
-            b[3] = (d >> 28) as u16;
+            let mut a = [U16::from(0); 4];
+            let mut b = [U16::from(0); 4];
+            a[0] = U16::from(d & 0xF.into());
+            b[0] = U16::from((d >> 4) & 0xF.into());
+            a[1] = U16::from((d >> 8) & 0xF.into());
+            b[1] = U16::from((d >> 12) & 0xF.into());
+            a[2] = U16::from((d >> 16) & 0xF.into());
+            b[2] = U16::from((d >> 20) & 0xF.into());
+            a[3] = U16::from((d >> 24) & 0xF.into());
+            b[3] = U16::from(d >> 28);
 
-            cs[0] = (a[0]).wrapping_sub(b[0]);
-            cs[1] = (a[1]).wrapping_sub(b[1]);
-            cs[2] = (a[2]).wrapping_sub(b[2]);
-            cs[3] = (a[3]).wrapping_sub(b[3]);
+            cs[0] = a[0] - b[0];
+            cs[1] = a[1] - b[1];
+            cs[2] = a[2] - b[2];
+            cs[3] = a[3] - b[3];
         }
         poly
     }
@@ -76,8 +77,8 @@ __generate_non_generic_tests!(Saber);
 #[cfg(test)]
 #[cfg(feature = "reftest")]
 mod tests {
-    use rand_os::rand_core::RngCore;
     use super::*;
+    use rand_os::rand_core::RngCore;
 
     mod ffi {
         #![allow(dead_code)]
@@ -162,7 +163,9 @@ mod tests {
                     message_dec2.as_mut_ptr(),
                 );
             }
-            assert_eq!(&message_dec[..], &message_dec2[..]);
+            for (b1, b2) in message_dec.iter().zip(message_dec2.iter()) {
+                assert_eq!(b1, b2);
+            }
         }
     }
 

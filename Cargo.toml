@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 rand_os = "0.1"
+secret_integers = "0.1"
 
 [dependencies.sha3]
 version = "0.8"

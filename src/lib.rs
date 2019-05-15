@@ -1,6 +1,7 @@
 #![allow(clippy::suspicious_arithmetic_impl)]
 
 extern crate rand_os;
+extern crate secret_integers;
 extern crate sha3;
 
 #[macro_use]
@@ -13,7 +14,6 @@ mod params;
 mod non_generic;
 
 mod generic;
-// pub mod lightsaber;
 mod poly;
 
 pub mod firesaber;

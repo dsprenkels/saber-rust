@@ -290,9 +290,11 @@ macro_rules! __generate_non_generic_tests {
                 let sk: SecretKey = keygen();
                 let pk: &PublicKey = &sk.pk_cca;
                 let (s1_newtype, ct): (SharedSecret, Ciphertext) = encapsulate(pk);
-                let s1: [u8; KEYBYTES] = s1_newtype.into();
-                let s2: [u8; KEYBYTES] = decapsulate(&ct, &sk).into();
-                assert_eq!(s1, s2);
+                let s1 = s1_newtype.as_bytes();
+                let s2 = decapsulate(&ct, &sk).into_bytes();
+                for (b1, b2) in s1.iter().zip(s2.iter()) {
+                    assert_eq!(b1, b2);
+                }
             }
 
             #[test]

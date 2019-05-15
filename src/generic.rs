@@ -1,4 +1,5 @@
 use rand_os::rand_core::RngCore;
+use secret_integers::*;
 use sha3::digest::{ExtendableOutput, Input, XofReader};
 use sha3::{Digest, Sha3_256, Sha3_512};
 
@@ -72,7 +73,7 @@ pub(crate) trait Vector<I: SaberImpl>: Clone + Default + Sized {
     }
 
     #[must_use]
-    fn add_u16(mut self, rhs: u16) -> Self {
+    fn add_u16(mut self, rhs: U16) -> Self {
         let polys = self.polys_mut();
         for poly in polys.iter_mut() {
             *poly = *poly + rhs;
@@ -81,7 +82,7 @@ pub(crate) trait Vector<I: SaberImpl>: Clone + Default + Sized {
     }
 
     #[must_use]
-    fn shr(mut self, rhs: u8) -> Self {
+    fn shr(mut self, rhs: u32) -> Self {
         for poly in self.polys_mut().iter_mut() {
             *poly = *poly >> rhs;
         }
@@ -292,7 +293,7 @@ pub(crate) trait SaberImpl: Sized {
     const RECON_SIZE: usize;
 
     // Constants added in this implementation
-    // pub const MSG2POL_CONST: u8;
+    // pub const MSG2POL_CONST: U8;
 
     const POLYVECCOMPRESSEDBYTES: usize;
     const INDCPA_PUBLICKEYBYTES: usize;
@@ -341,10 +342,10 @@ fn gen_secret<I: SaberImpl>(seed: &[u8]) -> I::Vector {
     secret
 }
 
-pub(crate) fn load_littleendian(bytes: &[u8]) -> u64 {
-    let mut r = 0;
+pub(crate) fn load_littleendian(bytes: &[u8]) -> U64 {
+    let mut r = 0.into();
     for (idx, b) in bytes.iter().enumerate() {
-        r |= u64::from(*b) << (8 * idx);
+        r |= U64::from(U8::from(*b)) << (8 * idx as u32);
     }
     r
 }
@@ -371,30 +372,30 @@ fn gen_matrix<I: SaberImpl>(seed: &[u8]) -> I::Matrix {
 /// This function implements ReconDataGen, as described in Algorithm 19
 fn recon_data_gen<I: SaberImpl>(dest: &mut [u8], poly: &Poly) {
     debug_assert_eq!(dest.len(), I::RECONBYTES_KEM);
-    let c = EPS_P - (I::RECON_SIZE as u8) - 1;
+    let c = (EPS_P - I::RECON_SIZE as u8 - 1) as u32;
     I::recon_poly_read_bytes_xbit(poly.reduce(P) >> c, dest);
 }
 
 /// This function implement Recon, as described in Algorithm 20
 fn recon<I: SaberImpl>(rec: &[u8], poly: &Poly) -> Poly {
     debug_assert_eq!(rec.len(), I::RECONBYTES_KEM);
-    let c0: u8 = EPS_P - I::RECON_SIZE as u8 - 1;
-    let c1: u16 = (1 << (EPS_P - 2)) - (1 << (EPS_P - 2 - I::RECON_SIZE as u8));
+    let c0 = (EPS_P - I::RECON_SIZE as u8 - 1) as u32;
+    let c1 = (1 << (EPS_P - 2)) - (1 << (EPS_P - 2 - I::RECON_SIZE as u8)) as u16;
 
     let rec_poly = I::recon_poly_from_bytes_xbit(rec);
     let mut k_poly = Poly::default();
     let input_iter = rec_poly.coeffs.iter().zip(poly.coeffs.iter());
     for ((recbit, coeff), k) in input_iter.zip(k_poly.coeffs.iter_mut()) {
-        let temp = recbit << c0;
-        let temp = coeff.wrapping_sub(temp).wrapping_add(c1);
+        let temp = *recbit << c0;
+        let temp = *coeff - temp + c1.into();
         //                   temp
         // K_i = floor( --------------- )
         //              2^[log2(p) - 1]
         //
         // Observe that 2^[log2(p) - 1] is just (P/2), so K_i = 2*temp/P.
         // I.e. we calculate that by computing K_i ← temp >> (𝜖_p - 1).
-        // *k |= (((temp >> (EPS_P - 1)) & 0x1) as u8) << idx;
-        *k |= (temp >> (EPS_P - 1)) & 0x1;
+        // *k |= (((temp >> (EPS_P - 1)) & 0x1) as U8) << idx;
+        *k |= (temp >> (EPS_P - 1).into()) & 0x1.into();
     }
     k_poly
 }
@@ -421,7 +422,7 @@ pub(crate) fn indcpa_key_keypair_deterministic<I: SaberImpl>(
     let pk_vec = a.mul(&sk_vec);
 
     // Rounding of b
-    let pk_vec = pk_vec.add_u16(4).shr(3);
+    let pk_vec = pk_vec.add_u16(4.into()).shr(3);
 
     (
         I::INDCPAPublicKey::new(pk_vec, seed),
@@ -453,7 +454,7 @@ pub(crate) fn indcpa_kem_enc<I: SaberImpl>(
     let pk_vec = a.mul_transpose(&sk_vec);
 
     // Rounding of b' into v_p
-    let pk_vec = pk_vec.add_u16(4).shr(3);
+    let pk_vec = pk_vec.add_u16(4.into()).shr(3);
 
     // ct = POLVECp2BS(v_p)
     pk_vec.read_mod_p(ct);
@@ -547,6 +548,7 @@ pub(crate) fn decapsulate<I: SaberImpl>(ct: &I::Ciphertext, sk: &I::SecretKey) -
     let pk_cpa = pk_cca.pk_cpa();
 
     let m = indcpa_kem_dec::<I>(&sk_cpa, &ct);
+
     let mut hasher = Sha3_512::default();
     sha3::digest::Input::input(&mut hasher, hash_pk);
     sha3::digest::Input::input(&mut hasher, m);
@@ -555,14 +557,13 @@ pub(crate) fn decapsulate<I: SaberImpl>(ct: &I::Ciphertext, sk: &I::SecretKey) -
     let (r, k) = kr.split_at_mut(KEYBYTES);
 
     let ciphertext_cca_check = indcpa_kem_enc::<I>(&m, r, &pk_cpa);
-    let fail = !compare_ct(ciphertext_cca_check.as_ref(), ct.as_ref());
+    let fail = U8::from(0xFF) ^ compare_ct(ciphertext_cca_check.as_ref(), ct.as_ref());
     r.copy_from_slice(Sha3_256::digest(ciphertext_cca_check.as_ref()).as_slice());
 
     let mut hasher = Sha3_256::default();
     for (rb, zb) in r.iter().zip(z.iter()) {
-        let mask = (fail as u8).wrapping_neg();
-        let b = (rb & !mask) | (zb & mask);
-        sha3::digest::Input::input(&mut hasher, [b]);
+        let b = (U8::from(*rb) & !fail) | (U8::from(*zb) & fail);
+        sha3::digest::Input::input(&mut hasher, [b.declassify()]);
     }
     sha3::digest::Input::input(&mut hasher, k);
 
@@ -572,18 +573,18 @@ pub(crate) fn decapsulate<I: SaberImpl>(ct: &I::Ciphertext, sk: &I::SecretKey) -
 }
 
 /// This function implements Verify, with some tweaks.
-///
-/// The design document ambiguously specifies which of `true` and `false` mean that the strings
-/// were actually equal. The reference implementation return 0, when the strings are equal.
-/// However, this is Rust, and we follow conventions. So this function returns true if the strings
-/// are equal, otherwise false. I.e.
-fn compare_ct(buf1: &[u8], buf2: &[u8]) -> bool {
-    if buf1.len() != buf2.len() {
-        return false;
-    }
-    let mut acc = true;
+fn compare_ct(buf1: &[u8], buf2: &[u8]) -> U8 {
+    let mut acc = 0xFF.into();
     for (b1, b2) in buf1.iter().zip(buf2.iter()) {
-        acc |= b1 == b2;
+        acc &= U8::from(*b1).comp_eq(U8::from(*b2));
     }
     acc
+}
+
+pub(crate) fn declassify_bytes(dest: &mut [u8], src: &[U8])
+{
+    debug_assert_eq!(dest.len(), src.len());
+    for (i, o) in src.iter().zip(dest.iter_mut()) {
+        *o = i.declassify();
+    }
 }

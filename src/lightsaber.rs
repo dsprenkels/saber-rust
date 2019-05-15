@@ -1,3 +1,4 @@
+use secret_integers::*;
 use sha3::digest::XofReader;
 
 use crate::generic::{self, INDCPAPublicKey as INDCPAPublicKeyTrait};
@@ -45,26 +46,26 @@ impl generic::SaberImpl for LightSaber {
             xof.read(&mut buf);
 
             let t = generic::load_littleendian(&buf);
-            let mut d = 0;
+            let mut d = U64::from(0);
             for idx in 0..buf.len() {
-                d += (t >> idx) & 0x0008_4210_8421;
+                d += (t >> idx as u32) & 0x0008_4210_8421.into();
             }
 
-            let mut a = [0; 4];
-            let mut b = [0; 4];
-            a[0] = (d & 0x1F) as u16;
-            b[0] = ((d >> 5) & 0x1F) as u16;
-            a[1] = ((d >> 10) & 0x1F) as u16;
-            b[1] = ((d >> 15) & 0x1F) as u16;
-            a[2] = ((d >> 20) & 0x1F) as u16;
-            b[2] = ((d >> 25) & 0x1F) as u16;
-            a[3] = ((d >> 30) & 0x1F) as u16;
-            b[3] = (d >> 35) as u16;
+            let mut a = [U16::from(0); 4];
+            let mut b = [U16::from(0); 4];
+            a[0] = U16::from(d & 0x1F.into());
+            b[0] = U16::from((d >> 5) & 0x1F.into());
+            a[1] = U16::from((d >> 10) & 0x1F.into());
+            b[1] = U16::from((d >> 15) & 0x1F.into());
+            a[2] = U16::from((d >> 20) & 0x1F.into());
+            b[2] = U16::from((d >> 25) & 0x1F.into());
+            a[3] = U16::from((d >> 30) & 0x1F.into());
+            b[3] = U16::from(d >> 35);
 
-            cs[0] = (a[0]).wrapping_sub(b[0]);
-            cs[1] = (a[1]).wrapping_sub(b[1]);
-            cs[2] = (a[2]).wrapping_sub(b[2]);
-            cs[3] = (a[3]).wrapping_sub(b[3]);
+            cs[0] = a[0] - b[0];
+            cs[1] = a[1] - b[1];
+            cs[2] = a[2] - b[2];
+            cs[3] = a[3] - b[3];
         }
         poly
     }
