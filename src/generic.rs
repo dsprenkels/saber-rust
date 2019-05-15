@@ -1,24 +1,66 @@
-use crate::params::COINBYTES;
-use crate::params::EPS_P;
-use crate::params::N;
-use crate::params::P;
 use crate::poly::Poly;
 use rand::random;
 use sha3::digest::{ExtendableOutput, XofReader};
 use sha3::{Digest, Sha3_256, Sha3_512};
 
+use crate::params::*;
 use crate::*;
 
-pub(crate) trait Vector: Clone + Default + Sized {
+pub(crate) trait Vector<I: SaberImpl>: Clone + Default + Sized {
     #[must_use]
     fn polys(&self) -> &[Poly];
     #[must_use]
     fn polys_mut(&mut self) -> &mut [Poly];
 
-    fn from_bytes_mod_q(bytes: &[u8]) -> Self;
-    fn from_bytes_mod_p(bytes: &[u8]) -> Self;
-    fn read_mod_q(&self, bytes: &mut [u8]);
-    fn read_mod_p(&self, bytes: &mut [u8]);
+    /// This function implements BS2POLVECq, as described in Algorithm 9
+    fn from_bytes_mod_q(bytes: &[u8]) -> Self {
+        debug_assert_eq!(bytes.len(), I::K * 13 * 256 / 8);
+        let mut vec = Self::default();
+        for (chunk, poly) in bytes
+            .chunks_exact(13 * 256 / 8)
+            .zip(vec.polys_mut().iter_mut())
+        {
+            *poly = Poly::from_bytes_13bit(chunk);
+        }
+        vec
+    }
+
+    /// This function implements BS2POLVECp, as described in Algorithm 13
+    fn from_bytes_mod_p(bytes: &[u8]) -> Self {
+        debug_assert_eq!(bytes.len(), I::K * 10 * 256 / 8);
+        let mut vec = Self::default();
+        for (chunk, poly) in bytes
+            .chunks_exact(10 * 256 / 8)
+            .zip(vec.polys_mut().iter_mut())
+        {
+            *poly = Poly::from_bytes_10bit(chunk);
+        }
+        vec
+    }
+
+    /// This function implements POLVECq2BS, as described in Algorithm 10
+    fn read_mod_q(&self, bytes: &mut [u8]) {
+        debug_assert_eq!(bytes.len(), I::K * 13 * 256 / 8);
+        for (poly, chunk) in self
+            .polys()
+            .iter()
+            .zip(bytes.chunks_exact_mut(13 * 256 / 8))
+        {
+            poly.read_bytes_13bit(chunk);
+        }
+    }
+
+    /// This function implements POLVECp2BS, as described in Algorithm 14
+    fn read_mod_p(&self, bytes: &mut [u8]) {
+        debug_assert_eq!(bytes.len(), I::K * 10 * 256 / 8);
+        for (poly, chunk) in self
+            .polys()
+            .iter()
+            .zip(bytes.chunks_exact_mut(10 * 256 / 8))
+        {
+            poly.read_bytes_10bit(chunk);
+        }
+    }
 
     #[must_use]
     #[inline]
@@ -62,9 +104,9 @@ pub(crate) trait Vector: Clone + Default + Sized {
     }
 }
 
-pub(crate) trait Matrix<V>: Clone + Default + Sized
+pub(crate) trait Matrix<I: SaberImpl, V>: Clone + Default + Sized
 where
-    V: Vector + Sized,
+    V: Vector<I> + Sized,
 {
     fn vecs(&self) -> &[V];
     fn vecs_mut(&mut self) -> &mut [V];
@@ -102,7 +144,14 @@ pub(crate) trait INDCPAPublicKey<I: SaberImpl>: Sized {
     fn vec(&self) -> &I::Vector;
     fn seed(&self) -> &[u8; SEEDBYTES];
 
-    fn to_bytes(&self) -> I::INDCPAPublicKeyBytes;
+    fn to_bytes(&self) -> I::INDCPAPublicKeyBytes {
+        let mut pk_newtype = I::INDCPAPublicKeyBytes::default();
+        let bytes = pk_newtype.as_mut();
+        let (pk, seed) = bytes.split_at_mut(I::POLYVECCOMPRESSEDBYTES);
+        self.vec().read_mod_p(pk);
+        seed.copy_from_slice(self.seed());
+        pk_newtype
+    }
 
     fn from_bytes(bytes: &[u8]) -> Self {
         debug_assert_eq!(bytes.len(), I::INDCPA_PUBLICKEYBYTES);
@@ -119,9 +168,24 @@ pub(crate) trait INDCPASecretKey<I: SaberImpl>: Sized {
 
     fn vec(&self) -> I::Vector;
 
-    fn to_bytes(&self) -> I::INDCPASecretKeyBytes;
+    fn to_bytes(&self) -> I::INDCPASecretKeyBytes {
+        let mut sk_newtype = I::INDCPASecretKeyBytes::default();
+        let mut bytes = sk_newtype.as_mut();
+        self.vec().read_mod_q(&mut bytes);
+        sk_newtype
+    }
 
-    fn from_bytes(bytes: &[u8]) -> Result<Self, crate::Error>;
+    fn from_bytes(bytes: &[u8]) -> Result<Self, crate::Error> {
+        if bytes.len() != I::INDCPA_SECRETKEYBYTES {
+            let err = crate::Error::BadLengthError {
+                name: "bytes",
+                actual: bytes.len(),
+                expected: I::INDCPA_SECRETKEYBYTES,
+            };
+            return Err(err);
+        }
+        Ok(INDCPASecretKey::new(Vector::from_bytes_mod_q(bytes)))
+    }
 }
 
 pub(crate) trait PublicKey<I: SaberImpl>: Sized {
@@ -173,8 +237,12 @@ pub(crate) trait SecretKey<I: SaberImpl>: Clone + Sized {
         (self.z(), self.hash_pk(), self.pk_cca(), self.sk_cpa())
     }
 
-    fn to_bytes(&self) -> I::PublicKeyBytes {
-        let mut result = I::PublicKeyBytes::default();
+    fn generate() -> I::SecretKey {
+        keygen::<I>()
+    }
+
+    fn to_bytes(&self) -> I::SecretKeyBytes {
+        let mut result = I::SecretKeyBytes::default();
         let bytes = result.as_mut();
         let (sk_cpa_bytes, rest) = bytes.split_at_mut(I::INDCPA_SECRETKEYBYTES);
         let (pk_cca_bytes, rest) = rest.split_at_mut(I::PUBLIC_KEY_BYTES);
@@ -215,25 +283,27 @@ pub(crate) trait SecretKey<I: SaberImpl>: Clone + Sized {
 }
 
 pub(crate) trait SaberImpl: Sized {
+    const K: usize;
+    const MU: usize;
+    const RECON_SIZE: usize;
+
+    // Constants added in this implementation
+    // pub const MSG2POL_CONST: u8;
+
+    const POLYVECCOMPRESSEDBYTES: usize;
+    const INDCPA_PUBLICKEYBYTES: usize;
+    const INDCPA_SECRETKEYBYTES: usize;
+
     // KEM parameters
     const PUBLIC_KEY_BYTES: usize;
     const SECRET_KEY_BYTES: usize;
+    const BYTES_CCA_DEC: usize;
 
     /// Is called DELTA in the reference implemention
-    const RECON_SIZE: usize;
     const RECONBYTES_KEM: usize;
 
-    // Constants added in this implementation
-    const MSG2POL_CONST: u8;
-
-    // Other parameters
-    const INDCPA_PUBLICKEYBYTES: usize;
-    const INDCPA_SECRETKEYBYTES: usize;
-    const BYTES_CCA_DEC: usize;
-    const POLYVECCOMPRESSEDBYTES: usize;
-
-    type Vector: Vector;
-    type Matrix: Matrix<Self::Vector>;
+    type Vector: Vector<Self>;
+    type Matrix: Matrix<Self, Self::Vector>;
 
     type SecretKey: SecretKey<Self>;
     type PublicKey: PublicKey<Self>;
@@ -244,23 +314,12 @@ pub(crate) trait SaberImpl: Sized {
     type INDCPAPublicKey: INDCPAPublicKey<Self>;
     type INDCPASecretKey: INDCPASecretKey<Self>;
 
-    type INDCPAPublicKeyBytes: AsRef<[u8]> + AsMut<[u8]>;
-    type INDCPASecretKeyBytes: AsRef<[u8]> + AsMut<[u8]>;
+    type INDCPAPublicKeyBytes: AsRef<[u8]> + AsMut<[u8]> + Default;
+    type INDCPASecretKeyBytes: AsRef<[u8]> + AsMut<[u8]> + Default;
 
     type Ciphertext: AsRef<[u8]> + AsMut<[u8]> + Default;
 
     fn gen_secret(seed: &[u8]) -> Self::Vector;
-
-    // fn indcpa_kem_keypair() -> (Self::INDCPAPublicKey, Self::INDCPASecretKey);
-    // fn indcpa_kem_enc(
-    //     message_received: &[u8],
-    //     noiseseed: &[u8],
-    //     pk: &Self::INDCPAPublicKey,
-    // ) -> Self::Ciphertext;
-    // fn indcpa_kem_dec(
-    //     sk: &Self::INDCPASecretKey,
-    //     ciphertext: &Self::Ciphertext,
-    // ) -> [u8; MESSAGEBYTES];
 }
 
 pub(crate) fn gen_matrix<I: SaberImpl>(seed: &[u8]) -> I::Matrix {
@@ -312,10 +371,6 @@ pub(crate) fn recon<I: SaberImpl>(rec: &[u8], poly: &Poly) -> Poly {
     }
     k_poly
 }
-
-__byte_array_newtype!(
-    pub SharedSecret, KEYBYTES, [u8; KEYBYTES]
-);
 
 /// Returns a tuple (public_key, secret_key), of PublicKey, SecretKey objects
 // C type in reference: void indcpa_kem_keypair(unsigned char *pk, unsigned char *sk);
@@ -386,7 +441,10 @@ pub(crate) fn indcpa_kem_enc<I: SaberImpl>(
 }
 
 // C type in reference: void indcpa_kem_dec(const unsigned char *sk, const unsigned char *ciphertext, unsigned char message_dec[])
-pub(crate) fn indcpa_kem_dec<I: SaberImpl>(sk: &I::INDCPASecretKey, ciphertext: &I::Ciphertext) -> [u8; MESSAGEBYTES] {
+pub(crate) fn indcpa_kem_dec<I: SaberImpl>(
+    sk: &I::INDCPASecretKey,
+    ciphertext: &I::Ciphertext,
+) -> [u8; MESSAGEBYTES] {
     // Extract (rec || ct) = CipherText
     let (ct, _) = ciphertext.as_ref().split_at(I::POLYVECCOMPRESSEDBYTES);
     let rec = &ciphertext.as_ref()[I::POLYVECCOMPRESSEDBYTES..];
@@ -408,6 +466,10 @@ pub(crate) fn indcpa_kem_dec<I: SaberImpl>(sk: &I::INDCPASecretKey, ciphertext: 
     message_dec_unpacked.read_bytes_msg(&mut message_dec);
     message_dec
 }
+
+__byte_array_newtype!(
+    pub SharedSecret, KEYBYTES, [u8; KEYBYTES]
+);
 
 // ---------- KEM functions ----------
 

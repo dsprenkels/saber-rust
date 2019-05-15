@@ -1,50 +1,17 @@
-#[allow(unused)]
-use crate::generic::SaberImpl;
-use crate::generic::{self, INDCPAPublicKey as INDCPAPublicKeyTrait, Vector as VectorTrait};
+use sha3::digest::{ExtendableOutput, Input, XofReader};
 
+use crate::generic::{self, INDCPAPublicKey as INDCPAPublicKeyTrait};
 use crate::params::*;
 use crate::poly::Poly;
-
-use sha3::digest::{ExtendableOutput, Input, XofReader};
 
 pub use crate::generic::SharedSecret;
 
 struct Saber;
 
-/// Also known as `l`
-const K: usize = 3;
-
-// KEM parameters
-const PUBLIC_KEY_BYTES: usize = 992;
-const SECRET_KEY_BYTES: usize = 2304;
-
-const POLYVECCOMPRESSEDBYTES: usize = K * (N * 10) / 8;
-
-/// Is called DELTA in the reference implemention
-const RECON_SIZE: usize = 3;
-const RECONBYTES_KEM: usize = (RECON_SIZE + 1) * N / 8;
-
-const BYTES_CCA_DEC: usize = 1088;
-const INDCPA_PUBLICKEYBYTES: usize = 992;
-const INDCPA_SECRETKEYBYTES: usize = 1248;
+__generate_params!(3, 8, 3);
 
 impl generic::SaberImpl for Saber {
-    // KEM parameters
-    const PUBLIC_KEY_BYTES: usize = PUBLIC_KEY_BYTES;
-    const SECRET_KEY_BYTES: usize = SECRET_KEY_BYTES;
-
-    const POLYVECCOMPRESSEDBYTES: usize = POLYVECCOMPRESSEDBYTES;
-
-    /// Is called DELTA in the reference implemention
-    const RECON_SIZE: usize = RECON_SIZE;
-    const RECONBYTES_KEM: usize = RECONBYTES_KEM;
-
-    const BYTES_CCA_DEC: usize = BYTES_CCA_DEC;
-    const INDCPA_PUBLICKEYBYTES: usize = INDCPA_PUBLICKEYBYTES;
-    const INDCPA_SECRETKEYBYTES: usize = INDCPA_SECRETKEYBYTES;
-
-    // Constants added in this implementation
-    const MSG2POL_CONST: u8 = 9;
+    __params_impl!();
 
     type Vector = Vector;
     type Matrix = Matrix;
@@ -130,12 +97,12 @@ impl generic::PublicKey<Saber> for PublicKey {
 }
 
 impl PublicKey {
-    pub fn from_bytes(bytes: &[u8]) -> Result<PublicKey, crate::Error> {
-        generic::PublicKey::from_bytes(bytes)
-    }
-
     pub fn to_bytes(&self) -> PublicKeyBytes {
         <PublicKey as generic::PublicKey<Saber>>::to_bytes(&self)
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<PublicKey, crate::Error> {
+        generic::PublicKey::from_bytes(bytes)
     }
 }
 
@@ -197,8 +164,20 @@ impl From<&SecretKeyBytes> for SecretKey {
 }
 
 impl SecretKey {
+    /// Generate a saber secret key
+    ///
+    /// This function generates a saber secret key. It is basically an alias for
+    /// [keygen](fn.keygen.html).
+    ///
+    /// ```
+    /// let secret_key = saber::saber::SecretKey::generate();
+    /// ```
+    pub fn generate() -> SecretKey {
+        <SecretKey as generic::SecretKey<Saber>>::generate()
+    }
+
     pub fn to_bytes(&self) -> SecretKeyBytes {
-        unimplemented!();
+        <SecretKey as generic::SecretKey<Saber>>::to_bytes(self)
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<SecretKey, crate::Error> {
@@ -228,14 +207,6 @@ impl generic::INDCPAPublicKey<Saber> for INDCPAPublicKey {
     fn seed(&self) -> &[u8; SEEDBYTES] {
         &self.seed
     }
-
-    fn to_bytes(&self) -> INDCPAPublicKeyBytes {
-        let mut bytes = [0; INDCPA_PUBLICKEYBYTES];
-        let (pk, seed) = bytes.split_at_mut(POLYVECCOMPRESSEDBYTES);
-        self.vec.read_mod_p(pk);
-        seed.copy_from_slice(&self.seed);
-        INDCPAPublicKeyBytes(bytes)
-    }
 }
 
 __byte_array_newtype!(
@@ -263,26 +234,6 @@ impl generic::INDCPASecretKey<Saber> for INDCPASecretKey {
     fn vec(&self) -> Vector {
         self.vec
     }
-
-    fn to_bytes(&self) -> INDCPASecretKeyBytes {
-        let mut bytes = [0; INDCPA_SECRETKEYBYTES];
-        self.vec.read_mod_q(&mut bytes);
-        INDCPASecretKeyBytes(bytes)
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Result<Self, crate::Error> {
-        if bytes.len() != INDCPA_SECRETKEYBYTES {
-            let err = crate::Error::BadLengthError {
-                name: "bytes",
-                actual: bytes.len(),
-                expected: Saber::INDCPA_SECRETKEYBYTES,
-            };
-            return Err(err);
-        }
-        Ok(INDCPASecretKey {
-            vec: Vector::from_bytes_mod_q(bytes),
-        })
-    }
 }
 
 __byte_array_newtype!(
@@ -305,7 +256,7 @@ impl Default for Matrix {
     }
 }
 
-impl generic::Matrix<Vector> for Matrix {
+impl generic::Matrix<Saber, Vector> for Matrix {
     fn vecs(&self) -> &[Vector] {
         &self.vecs
     }
@@ -321,49 +272,13 @@ struct Vector {
     polys: [Poly; K],
 }
 
-impl generic::Vector for Vector {
+impl generic::Vector<Saber> for Vector {
     fn polys(&self) -> &[Poly] {
         &self.polys
     }
 
     fn polys_mut(&mut self) -> &mut [Poly] {
         &mut self.polys
-    }
-
-    /// This function implements BS2POLVECq, as described in Algorithm 9
-    fn from_bytes_mod_q(bytes: &[u8]) -> Self {
-        debug_assert_eq!(bytes.len(), K * 13 * 256 / 8);
-        let mut vec = Vector::default();
-        for (chunk, poly) in bytes.chunks_exact(13 * 256 / 8).zip(vec.polys.iter_mut()) {
-            *poly = Poly::from_bytes_13bit(chunk);
-        }
-        vec
-    }
-
-    /// This function implements BS2POLVECp, as described in Algorithm 13
-    fn from_bytes_mod_p(bytes: &[u8]) -> Self {
-        debug_assert_eq!(bytes.len(), K * 10 * 256 / 8);
-        let mut vec = Vector::default();
-        for (chunk, poly) in bytes.chunks_exact(10 * 256 / 8).zip(vec.polys.iter_mut()) {
-            *poly = Poly::from_bytes_10bit(chunk);
-        }
-        vec
-    }
-
-    /// This function implements POLVECq2BS, as described in Algorithm 10
-    fn read_mod_q(&self, bytes: &mut [u8]) {
-        debug_assert_eq!(bytes.len(), K * 13 * 256 / 8);
-        for (poly, chunk) in self.polys.iter().zip(bytes.chunks_exact_mut(13 * 256 / 8)) {
-            poly.read_bytes_13bit(chunk);
-        }
-    }
-
-    /// This function implements POLVECp2BS, as described in Algorithm 14
-    fn read_mod_p(&self, bytes: &mut [u8]) {
-        debug_assert_eq!(bytes.len(), K * 10 * 256 / 8);
-        for (poly, chunk) in self.polys.iter().zip(bytes.chunks_exact_mut(10 * 256 / 8)) {
-            poly.read_bytes_10bit(chunk);
-        }
     }
 }
 
@@ -410,5 +325,10 @@ mod tests {
     #[test]
     fn polyveccompressedbytes_value() {
         assert_eq!(POLYVECCOMPRESSEDBYTES + SEEDBYTES, INDCPA_PUBLICKEYBYTES);
+    }
+
+    #[test]
+    fn test_log_q() {
+        assert_eq!(1 << (MSG2POL_CONST + 1), P);
     }
 }

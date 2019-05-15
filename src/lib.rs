@@ -4,10 +4,13 @@ extern crate rand;
 extern crate sha3;
 
 #[macro_use]
-mod macros;
+mod newtype;
+
+#[macro_use]
+mod params;
 
 mod generic;
-mod params;
+// pub mod lightsaber;
 mod poly;
 pub mod saber;
 
@@ -21,11 +24,3 @@ pub enum Error {
     #[doc(hidden)]
     __Nonexhaustive,
 }
-
-pub const HASHBYTES: usize = 32;
-pub const KEYBYTES: usize = 32;
-pub const MESSAGEBYTES: usize = 32;
-pub const NOISE_SEEDBYTES: usize = 32;
-pub const SEEDBYTES: usize = 32;
-pub const CIPHERTEXT_BYTES: usize = 32;
-
