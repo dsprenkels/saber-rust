@@ -557,7 +557,8 @@ pub(crate) fn decapsulate<I: SaberImpl>(ct: &I::Ciphertext, sk: &I::SecretKey) -
     let (r, k) = kr.split_at_mut(KEYBYTES);
 
     let ciphertext_cca_check = indcpa_kem_enc::<I>(&m, r, &pk_cpa);
-    let fail = U8::from(0xFF) ^ compare_ct(ciphertext_cca_check.as_ref(), ct.as_ref());
+    let fail = U8::from(0xFF) ^ bytes_eq_mask(ciphertext_cca_check.as_ref(), ct.as_ref());
+    println!("fail: 0x{:02X?}", fail.declassify());
     r.copy_from_slice(Sha3_256::digest(ciphertext_cca_check.as_ref()).as_slice());
 
     let mut hasher = Sha3_256::default();
@@ -573,12 +574,52 @@ pub(crate) fn decapsulate<I: SaberImpl>(ct: &I::Ciphertext, sk: &I::SecretKey) -
 }
 
 /// This function implements Verify, with some tweaks.
-fn compare_ct(buf1: &[u8], buf2: &[u8]) -> U8 {
-    let mut acc = 0xFF.into();
+///
+/// Returns
+///   | buf1 == buf2 = 0xFF
+///   | otherwise    = 0x00
+fn bytes_eq_mask(buf1: &[u8], buf2: &[u8]) -> U8 {
+    debug_assert_eq!(buf1.len(), buf2.len());
+    println!("buf1: 0x{:02X?}", &buf1[..20]);
+    println!("buf2: 0x{:02X?}", &buf2[..20]);
+    let mut acc = U8::from(0xFF);
     for (b1, b2) in buf1.iter().zip(buf2.iter()) {
-        acc &= U8::from(*b1).comp_eq(U8::from(*b2));
+        acc &= u8_eq_mask(U8::from(*b1), U8::from(*b2));
+        let cnd = u8_eq_mask(U8::from(*b1), U8::from(*b2));
+        println!("b1: 0x{:02X?}, b2: 0x{:02X?}, cnd: 0x{:02X?}", b1, b2, cnd.declassify());
+        println!("acc: 0x{:02X?}", acc.declassify());
     }
     acc
+}
+
+/// Compare two U8's for equality
+///
+/// Return
+///   | buf1 == buf2 = 0xFF
+///   | otherwise    = 0x00
+///
+/// This function is based on the [`u64_eq_mask`] function from the Curve25519 HACL implementation
+/// in Wireguard.
+///
+/// We use this function because it seems that the `U8::comp_eq` function from the
+/// `secret_integers` crate has a bug. See for yourself:
+///
+/// ```should_fail
+/// use secret_integers::U8;
+///
+/// let a = U8::from(3);
+/// let b = U8::from(3);
+/// let eq = U8::comp_eq(a, b);
+///
+/// // This equality fails:
+/// assert_eq!(eq.declassify(), 0xFF);
+/// ```
+///
+/// [`u64_eq_mask`]: https://git.zx2c4.com/WireGuard/commit/src/crypto/curve25519-hacl64.h?id=2e60bb395c1f589a398ec606d611132ef9ef764b
+fn u8_eq_mask(x: U8, y: U8) -> U8 {
+    let mut z = x ^ y;
+    z |= -z;
+    (z >> 7) - 1.into()
 }
 
 pub(crate) fn declassify_bytes(dest: &mut [u8], src: &[U8])
