@@ -18,7 +18,12 @@ Cryptography "competition"][nist].
 [nist]: https://csrc.nist.gov/projects/post-quantum-cryptography/round-2-submissions
 [eprint]: https://eprint.iacr.org/2018/230.pdf
 
-# Getting started
+## Documentation
+
+You can find the documentation for this crate at
+<https://dsprenkels.github.io/saber-rust/saber>.
+
+## Getting started
 
 Install this crate using Cargo by adding it to your dependencies:
 
@@ -27,12 +32,7 @@ Install this crate using Cargo by adding it to your dependencies:
 saber = { git = "https://github.com/dsprenkels/saber-rust" }
 ```
 
-# Usage
-
-You can find the documentation for this crate at
-<https://dsprenkels.github.io/saber-rust/saber>.
-
-# Security and side-channel resistance
+## Security and side-channel resistance
 
 This crate contains **academic code**. That is, while I expect it to implement
 the Saber scheme correctly, it has **not** ben independently audited in any way.
@@ -43,6 +43,6 @@ Moreover, although this crate uses the [secret-integers] crate to ensure that th
 [crates.io]: https://crates.io
 [secret-integers]: https://github.com/denismerigoux/rust-secret-integers
 
-# Questions
+## Questions
 
 Feel free to send me an email on my Github associated e-mail address.
