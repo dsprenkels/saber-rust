@@ -44,3 +44,5 @@ Moreover, although this crate uses the [secret-integers] crate to ensure that th
 [secret-integers]: https://github.com/denismerigoux/rust-secret-integers
 
 # Questions
+
+Feel free to send me an email on my Github associated e-mail address.
