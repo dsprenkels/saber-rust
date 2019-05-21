@@ -1,0 +1,16 @@
+var ALIASES = {};
+ALIASES["block_buffer"] = {};
+ALIASES["block_padding"] = {};
+ALIASES["byte_tools"] = {};
+ALIASES["byteorder"] = {};
+ALIASES["digest"] = {};
+ALIASES["generic_array"] = {};
+ALIASES["keccak"] = {};
+ALIASES["libc"] = {};
+ALIASES["opaque_debug"] = {};
+ALIASES["rand_core"] = {};
+ALIASES["rand_os"] = {};
+ALIASES["saber"] = {};
+ALIASES["secret_integers"] = {};
+ALIASES["sha3"] = {};
+ALIASES["typenum"] = {};
