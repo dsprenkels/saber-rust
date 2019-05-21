@@ -1,5 +1,7 @@
 # Saber-rust
 
+[![Build Status](https://travis-ci.org/dsprenkels/saber-rust.svg?branch=master)](https://travis-ci.org/dsprenkels/saber-rust)
+
 An implementation of the Saber post-quantum key-encapsulation mechanism in Rust.
 
 [Saber][eprint] is a post-quantum cryptographic key-encapsulation mechanism. It
