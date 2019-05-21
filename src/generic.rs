@@ -174,7 +174,7 @@ pub(crate) trait INDCPASecretKey<I: SaberImpl>: Sized {
 
     fn from_bytes(bytes: &[u8]) -> Result<Self, crate::Error> {
         if bytes.len() != I::INDCPA_SECRETKEYBYTES {
-            let err = crate::Error::BadLengthError {
+            let err = crate::Error::BadLength {
                 name: "bytes",
                 actual: bytes.len(),
                 expected: I::INDCPA_SECRETKEYBYTES,
@@ -201,7 +201,7 @@ pub(crate) trait PublicKey<I: SaberImpl>: Sized {
 
     fn from_bytes(bytes: &[u8]) -> Result<Self, crate::Error> {
         if bytes.len() != I::PUBLIC_KEY_BYTES {
-            let err = crate::Error::BadLengthError {
+            let err = crate::Error::BadLength {
                 name: "bytes",
                 actual: bytes.len(),
                 expected: I::PUBLIC_KEY_BYTES,
@@ -266,7 +266,7 @@ pub(crate) trait SecretKey<I: SaberImpl>: Clone + Sized {
 
     fn from_bytes(bytes: &[u8]) -> Result<Self, crate::Error> {
         if bytes.len() != I::SECRET_KEY_BYTES {
-            let err = crate::Error::BadLengthError {
+            let err = crate::Error::BadLength {
                 name: "bytes",
                 actual: bytes.len(),
                 expected: I::SECRET_KEY_BYTES,
@@ -351,7 +351,6 @@ pub(crate) fn load_littleendian(bytes: &[u8]) -> U64 {
 }
 
 fn gen_matrix<I: SaberImpl>(seed: &[u8]) -> I::Matrix {
-    use sha3::digest::Input;
     debug_assert_eq!(seed.len(), SEEDBYTES);
 
     let mut hasher = sha3::Shake128::default();
@@ -372,14 +371,14 @@ fn gen_matrix<I: SaberImpl>(seed: &[u8]) -> I::Matrix {
 /// This function implements ReconDataGen, as described in Algorithm 19
 fn recon_data_gen<I: SaberImpl>(dest: &mut [u8], poly: &Poly) {
     debug_assert_eq!(dest.len(), I::RECONBYTES_KEM);
-    let c = (EPS_P - I::RECON_SIZE as u8 - 1) as u32;
+    let c = u32::from(EPS_P - I::RECON_SIZE as u8 - 1);
     I::recon_poly_read_bytes_xbit(poly.reduce(P) >> c, dest);
 }
 
 /// This function implement Recon, as described in Algorithm 20
 fn recon<I: SaberImpl>(rec: &[u8], poly: &Poly) -> Poly {
     debug_assert_eq!(rec.len(), I::RECONBYTES_KEM);
-    let c0 = (EPS_P - I::RECON_SIZE as u8 - 1) as u32;
+    let c0 = u32::from(EPS_P - I::RECON_SIZE as u8 - 1);
     let c1 = (1 << (EPS_P - 2)) - (1 << (EPS_P - 2 - I::RECON_SIZE as u8)) as u16;
 
     let rec_poly = I::recon_poly_from_bytes_xbit(rec);
@@ -408,10 +407,13 @@ pub(crate) fn indcpa_kem_keypair<I: SaberImpl>() -> (I::INDCPAPublicKey, I::INDC
     rng.fill_bytes(&mut seed);
     let mut noiseseed = [0; COINBYTES];
     rng.fill_bytes(&mut noiseseed);
-    indcpa_key_keypair_deterministic::<I>(seed, noiseseed)
+    indcpa_kem_keypair_deterministic::<I>(seed, noiseseed)
 }
 
-pub(crate) fn indcpa_key_keypair_deterministic<I: SaberImpl>(
+/// Deterministic part of indcpa_kem_keypair
+///
+/// The function has been split into two parts because of testing purposes.
+pub(crate) fn indcpa_kem_keypair_deterministic<I: SaberImpl>(
     seed: [u8; SEEDBYTES],
     noiseseed: [u8; COINBYTES],
 ) -> (I::INDCPAPublicKey, I::INDCPASecretKey) {
@@ -558,7 +560,6 @@ pub(crate) fn decapsulate<I: SaberImpl>(ct: &I::Ciphertext, sk: &I::SecretKey) -
 
     let ciphertext_cca_check = indcpa_kem_enc::<I>(&m, r, &pk_cpa);
     let fail = U8::from(0xFF) ^ bytes_eq_mask(ciphertext_cca_check.as_ref(), ct.as_ref());
-    println!("fail: 0x{:02X?}", fail.declassify());
     r.copy_from_slice(Sha3_256::digest(ciphertext_cca_check.as_ref()).as_slice());
 
     let mut hasher = Sha3_256::default();
@@ -580,14 +581,9 @@ pub(crate) fn decapsulate<I: SaberImpl>(ct: &I::Ciphertext, sk: &I::SecretKey) -
 ///   | otherwise    = 0x00
 fn bytes_eq_mask(buf1: &[u8], buf2: &[u8]) -> U8 {
     debug_assert_eq!(buf1.len(), buf2.len());
-    println!("buf1: 0x{:02X?}", &buf1[..20]);
-    println!("buf2: 0x{:02X?}", &buf2[..20]);
     let mut acc = U8::from(0xFF);
     for (b1, b2) in buf1.iter().zip(buf2.iter()) {
         acc &= u8_eq_mask(U8::from(*b1), U8::from(*b2));
-        let cnd = u8_eq_mask(U8::from(*b1), U8::from(*b2));
-        println!("b1: 0x{:02X?}, b2: 0x{:02X?}, cnd: 0x{:02X?}", b1, b2, cnd.declassify());
-        println!("acc: 0x{:02X?}", acc.declassify());
     }
     acc
 }
@@ -622,8 +618,7 @@ fn u8_eq_mask(x: U8, y: U8) -> U8 {
     (z >> 7) - 1.into()
 }
 
-pub(crate) fn declassify_bytes(dest: &mut [u8], src: &[U8])
-{
+pub(crate) fn declassify_bytes(dest: &mut [u8], src: &[U8]) {
     debug_assert_eq!(dest.len(), src.len());
     for (i, o) in src.iter().zip(dest.iter_mut()) {
         *o = i.declassify();

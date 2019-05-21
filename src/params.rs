@@ -9,7 +9,6 @@ functions that rely on different functions multiple times.
 
 // Universal constants
 pub(crate) const N: usize = 256;
-pub(crate) const Q: u16 = 8192;
 pub(crate) const P: u16 = 1024;
 
 pub(crate) const EPS_P: u8 = 10;
@@ -31,9 +30,6 @@ macro_rules! __generate_params {
         const K: usize = $k;
         const MU: usize = $mu;
         const RECON_SIZE: usize = $delta;
-
-        // Constants added in this implementation
-        // const MSG2POL_CONST: u8 = 9;
 
         const POLYVECCOMPRESSEDBYTES: usize =
             K * (crate::params::N * crate::params::EPS_P as usize) / 8;

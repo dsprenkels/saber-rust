@@ -58,7 +58,7 @@ macro_rules! __byte_array_newtype_impl {
             #[allow(unused)]
             pub fn from_bytes(bytes: &[u8]) -> Result<$name, crate::Error> {
                 if bytes.len() != $length {
-                    let err = crate::Error::BadLengthError {
+                    let err = crate::Error::BadLength {
                         name: stringify!($name),
                         actual: bytes.len(),
                         expected: $length,

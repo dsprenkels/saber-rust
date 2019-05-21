@@ -1,3 +1,23 @@
+//! Saber key encapsulation using paranoid parameters.
+//!
+//! # Example
+//!
+//! ```
+//! use saber::firesaber::{keygen, encapsulate, decapsulate};
+//!
+//! // Consider a server with a key pair
+//! let server_secret_key = keygen();
+//! let server_public_key = server_secret_key.public_key();
+//!
+//! // Let a client encapsulate some shared secret for the server
+//! let (client_secret, ciphertext) = encapsulate(&server_public_key);
+//!
+//! // Have the server decrypt the ciphertext
+//! let server_secret = decapsulate(&ciphertext, &server_secret_key);
+//!
+//! assert_eq!(client_secret.as_slice(), server_secret.as_slice());
+//! ```
+
 use secret_integers::*;
 use sha3::digest::XofReader;
 

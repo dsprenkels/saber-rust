@@ -1,5 +1,6 @@
 macro_rules! __generate_non_generic_impl {
     ($struct:ident) => {
+        /// A saber public key
         #[repr(C)]
         #[derive(Clone)]
         pub struct PublicKey {
@@ -58,6 +59,12 @@ macro_rules! __generate_non_generic_impl {
             }
         }
 
+        /// A saber secret key
+        ///
+        /// Secret keys also contain their respective public keys. These can be obtained using
+        /// [`SecretKey::public_key()`].
+        ///
+        /// [`SecretKey::public_key()`]: struct.SecretKey.html#method.public_key
         #[repr(C)]
         #[derive(Clone)]
         pub struct SecretKey {
@@ -103,14 +110,22 @@ macro_rules! __generate_non_generic_impl {
         }
 
         impl SecretKey {
+            /// Retrieve a reference to the public key that is contained in this secret key.
             pub fn public_key(&self) -> &PublicKey {
                 &self.pk_cca
             }
 
+            /// Serialize this secret key into bytes format.
             pub fn to_bytes(&self) -> SecretKeyBytes {
                 <SecretKey as generic::SecretKey<$struct>>::to_bytes(self)
             }
 
+            /// Parse the secret key in `bytes`.
+            ///
+            /// # Returns
+            ///   - [`saber::Error::BadLength`], if `bytes` was of incorrect length.
+            ///
+            /// [`saber::Error::BadLength`]: ../enum.Error.html
             pub fn from_bytes(bytes: &[u8]) -> Result<SecretKey, crate::Error> {
                 <SecretKey as generic::SecretKey<$struct>>::from_bytes(bytes)
             }
@@ -223,7 +238,7 @@ macro_rules! __generate_non_generic_impl {
         This data structure is used for conversions between ciphertexts and byte strings.
         ", pub Ciphertext, BYTES_CCA_DEC, [u8; BYTES_CCA_DEC]);
 
-        /// `keygen` generates a saber keypair.
+        /// Generate a saber keypair.
         ///
         /// # Example
         ///
@@ -236,8 +251,8 @@ macro_rules! __generate_non_generic_impl {
 
         /// Encapsulate a secret destined for `pk_cca`.
         ///
-        /// Takes a reference to Bob's `[PublicKey]` and returns a (`[SharedSecret]`,
-        /// `[CipherText]`) tuple.
+        /// Takes a reference to Bob's [`PublicKey`] and returns a ([`SharedSecret`],
+        /// [`Ciphertext`]) tuple.
         ///
         /// # Example
         ///
@@ -250,8 +265,9 @@ macro_rules! __generate_non_generic_impl {
         /// let (shared_secret, ciphertext) = encapsulate(&public_key);
         /// ```
         ///
-        /// [PublicKey]: struct.PublicKey.html
-        /// [keygen]: fn.keygen.html
+        /// [`PublicKey`]: struct.PublicKey.html
+        /// [`SharedSecret`]: struct.SharedSecret.html
+        /// [`Ciphertext`]: struct.Ciphertext.html
         pub fn encapsulate(pk_cca: &PublicKey) -> (SharedSecret, Ciphertext) {
             generic::encapsulate::<$struct>(&pk_cca)
         }
@@ -298,7 +314,7 @@ macro_rules! __generate_non_generic_tests {
             }
 
             #[test]
-            fn indcpa_impl() {
+            fn test_indcpa() {
                 use rand_os::rand_core::RngCore;
 
                 let (pk, sk) = generic::indcpa_kem_keypair::<$struct>();
@@ -316,12 +332,64 @@ macro_rules! __generate_non_generic_tests {
             }
 
             #[test]
+            #[ignore]
+            fn test_kem_encapsulate_uninitialized() {
+                let sk: SecretKey = unsafe { core::mem::uninitialized() };
+                let pk = &sk.pk_cca;
+                encapsulate(pk);
+            }
+
+            #[test]
+            #[ignore]
+            fn test_kem_decapsulate_uninitialized() {
+                let sk: SecretKey = unsafe { core::mem::uninitialized() };
+                let ct: Ciphertext = unsafe { core::mem::uninitialized() };
+                decapsulate(&ct, &sk).into_bytes();
+            }
+
+            #[test]
+            #[ignore]
+            fn test_indcpa_keygen_uninitialized() {
+                use crate::generic::{
+                    indcpa_kem_keypair_deterministic, INDCPAPublicKey as _, INDCPASecretKey as _,
+                };
+
+                let seed: [u8; SEEDBYTES] = unsafe { core::mem::uninitialized() };
+                let noise: [u8; COINBYTES] = unsafe { core::mem::uninitialized() };
+                let (pk_cpa, sk_cpa) = indcpa_kem_keypair_deterministic::<$struct>(seed, noise);
+                pk_cpa.to_bytes();
+                sk_cpa.to_bytes();
+            }
+
+            #[test]
+            #[ignore]
+            fn test_indcpa_kem_enc_uninitialized() {
+                use crate::generic::indcpa_kem_enc;
+
+                let message_received: [u8; KEYBYTES] = unsafe { core::mem::uninitialized() };
+                let noise: [u8; COINBYTES] = unsafe { core::mem::uninitialized() };
+
+                let pk_cpa = unsafe { core::mem::uninitialized() };
+                indcpa_kem_enc::<$struct>(&message_received, &noise, pk_cpa);
+            }
+
+            #[test]
+            #[ignore]
+            fn test_indcpa_kem_dec_uninitialized() {
+                use crate::generic::indcpa_kem_dec;
+
+                let ciphertext: Ciphertext = unsafe { core::mem::uninitialized() };
+                let sk_cpa = unsafe { core::mem::uninitialized() };
+                indcpa_kem_dec::<$struct>(&sk_cpa, &ciphertext);
+            }
+
+            #[test]
             fn polyveccompressedbytes_value() {
                 assert_eq!(POLYVECCOMPRESSEDBYTES + SEEDBYTES, INDCPA_PUBLICKEYBYTES);
             }
 
             #[test]
-            fn test_log_q() {
+            fn test_msg2pol_const_value() {
                 assert_eq!(1 << (MSG2POL_CONST + 1), P);
             }
         }
