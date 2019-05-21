@@ -28,7 +28,7 @@ saber = { git = "https://github.com/dsprenkels/saber-rust" }
 # Usage
 
 You can find the documentation for this crate at
-<https://dsprenkels.github.io/saber-rust/>.
+<https://dsprenkels.github.io/saber-rust/saber>.
 
 # Security and side-channel resistance
 
